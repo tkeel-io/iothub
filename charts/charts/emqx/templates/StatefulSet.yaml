@@ -101,6 +101,8 @@ spec:
             containerPort: {{ .Values.emqxConfig.EMQX_LISTENERS__WSS__DEFAULT | default 8084 }}
           - name: dashboard
             containerPort: {{ .Values.emqxConfig.EMQX_DASHBOARD__LISTENER__HTTP | default 18083 }}
+          - name: coap
+            containerPort: {{ .Values.emqxConfig.EMQX_LISTENERS__COAP__DEFAULT | default 5683 }}
           {{- if not (empty .Values.emqxConfig.EMQX_LISTENERS__TCP__DEFAULT) }}
           - name: internalmqtt
             containerPort: {{ .Values.emqxConfig.EMQX_LISTENERS__TCP__DEFAULT }}
@@ -128,7 +130,7 @@ spec:
           - name: EMQX_EXHOOK__SERVER__DEFAULT__URL
             value: http://iothub:9000
           - name: EMQX_LOADED_PLUGINS
-            value: emqx_recon,emqx_retainer,emqx_management,emqx_dashboard,emqx_exhook,emqx_rule_engine,emqx_telemetry
+            value: emqx_recon,emqx_retainer,emqx_management,emqx_dashboard,emqx_exhook,emqx_rule_engine,emqx_telemetry,emqx_coap
           resources:
 {{ toYaml .Values.resources | indent 12 }}
           volumeMounts:

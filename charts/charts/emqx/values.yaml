@@ -72,6 +72,9 @@ service:
   ## Port for MQTT
   ##
   mqtt: 1883
+  ## Port for CoAP
+  ##
+  coap: 5683
   ## Port for MQTT(SSL)
   ##
   mqttssl: 8883
@@ -95,6 +98,7 @@ service:
   ##
   nodePorts:
     mqtt:
+    coap: 30588
     mqttssl:
     mgmt:
     ws:
