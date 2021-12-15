@@ -87,8 +87,10 @@ type TokenValidResponse struct {
 }
 
 func (s *HookService) auth(username, password, clientid string) bool {
-	tokenReq := TokenValidRequest{EntityToken: password}
-	resp, err := s.daprClient.InvokeMethodWithCustomContent(context.Background(), "keel", "apis/security/v1/entity/token/valid", http.MethodPost, "application/json", tokenReq)
+	//tokenReq := TokenValidRequest{EntityToken: password}
+	//resp, err := s.daprClient.InvokeMethodWithCustomContent(context.Background(), "keel", "apis/security/v1/entity/token/valid", http.MethodPost, "application/json", tokenReq)
+	url :=  "apis/security/v1/entity/info/" + password
+	resp, err := s.daprClient.InvokeMethod(context.Background(), "keel", url, http.MethodGet)
 	if err != nil {
 		log.Error(err)
 		return false
@@ -96,7 +98,11 @@ func (s *HookService) auth(username, password, clientid string) bool {
 
 	tokenResp := &TokenValidResponse{}
 	json.Unmarshal(resp, tokenResp)
-	return tokenResp.Data.EntityID == clientid && tokenResp.Data.Owner == username
+	//return tokenResp.Data.EntityID == clientid && tokenResp.Data.Owner == username
+	if tokenResp.Code != 0 {
+		log.Warn(tokenResp.Msg)
+	}
+	return tokenResp.Code == 0
 }
 
 func (s *HookService) OnClientAuthenticate(ctx context.Context, in *pb.ClientAuthenticateRequest) (*pb.ValuedResponse, error) {
