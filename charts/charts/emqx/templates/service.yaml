@@ -82,6 +82,15 @@ spec:
     {{- else if eq .Values.service.type "ClusterIP" }}
     nodePort: null
     {{- end }}
+  - name: coap
+    port: {{ .Values.service.coap | default 5683 }}
+    protocol: UDP
+    targetPort: 5683
+    {{- if and (or (eq .Values.service.type "NodePort") (eq .Values.service.type "LoadBalancer")) (not (empty .Values.service.nodePorts.coap)) }}
+    nodePort: {{ .Values.service.nodePorts.coap }}
+    {{- else if eq .Values.service.type "ClusterIP" }}
+    nodePort: null
+    {{- end }}
   {{- if not (empty .Values.service.dashboardtls) }}
   - name: dashboardtls
     port: {{ .Values.service.dashboardtls }}
