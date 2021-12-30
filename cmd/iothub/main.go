@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"flag"
+	Iothub_v1 "github.com/tkeel-io/iothub/api/iothub/v1"
 	"os"
 	"os/signal"
 	"syscall"
@@ -57,7 +58,16 @@ func main() {
 			panic(err)
 		}
 
-		pb.RegisterHookProviderServer(grpcSrv.GetServe(), service.NewHookService(client))
+		// topic service
+		HookServiceSrv := service.NewHookService(client)
+		pb.RegisterHookProviderServer(grpcSrv.GetServe(), HookServiceSrv)
+
+		TopicSrv, err := service.NewTopicService(context.Background(), HookServiceSrv)
+		if nil != err {
+			log.Fatal(err)
+		}
+		Iothub_v1.RegisterTopicHTTPServer(httpSrv.Container, TopicSrv)
+		Iothub_v1.RegisterTopicServer(grpcSrv.GetServe(), TopicSrv)
 	}
 
 	if err := app.Run(context.TODO()); err != nil {
