@@ -16,6 +16,9 @@ import (
 	v1 "github.com/tkeel-io/core/api/core/v1"
 	pb "github.com/tkeel-io/iothub/protobuf"
 	"github.com/tkeel-io/kit/log"
+	"github.com/google/uuid"
+	"github.com/pkg/errors"
+	v1 "github.com/tkeel-io/core/api/core/v1"
 )
 
 const (
@@ -348,8 +351,7 @@ func getUserNameFromTopic(topic string) (user string) {
 	if len(items) != 2 {
 		return
 	}
-	user = items[0]
-	return
+	return nil
 }
 
 func (s *HookService) OnMessagePublish(ctx context.Context, in *pb.MessagePublishRequest) (*pb.ValuedResponse, error) {
