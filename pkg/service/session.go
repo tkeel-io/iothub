@@ -7,11 +7,11 @@ type ConnectInfo struct {
 	SocketPort   string    `json:"_socketport"`
 	Protocol     string    `json:"_protocol"`
 	UserName     string    `json:"_username"`
+	Online       bool      `json:"_online"`
+	Owner        string     `json:"_owner"`
 }
 
-type EntityInfo struct {
+type DeviceEntityInfo struct {
 	EntityID     string    `json:"entity_id"`
 	Owner        string    `json:"owner"`
 }
-
-

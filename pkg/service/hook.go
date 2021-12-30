@@ -11,6 +11,9 @@ import (
 
 	dapr "github.com/dapr/go-sdk/client"
 
+	"github.com/google/uuid"
+	"github.com/pkg/errors"
+	v1 "github.com/tkeel-io/core/api/core/v1"
 	pb "github.com/tkeel-io/iothub/protobuf"
 	"github.com/tkeel-io/kit/log"
 	"github.com/google/uuid"
@@ -18,12 +21,33 @@ import (
 	v1 "github.com/tkeel-io/core/api/core/v1"
 )
 
+const (
+	//state store
+	iothubPrivateStatesStoreName = `iothub-private-store`
+	connectInfoSuffixKey         = `_ci`
+	devEntitySuffixKey 			 = `_de`
+	subEntitySuffixKey 			 = `_sub`
+
+	//different properties of device entity
+	rawDataProperty              = `rawData`
+	attributeProperty 			 = `attributes`
+	telemetryProperty 			 = `telemetry`
+	commandProperty   			 = `commands`
+	connectInfoProperty          = `connectinfo`
+	
+	// default client id for cloud
+	defaultDownStreamClientId    = `@tkeel.iothub.internal.clienId`
+)
+
 // HookService is used to implement emqx_exhook_v1.s *HookService.
 type HookService struct {
 	pb.UnimplementedHookProviderServer
 	daprClient dapr.Client
-	clients map[string]*ConnectInfo
-	entities map[string]*EntityInfo
+	//clients map[string]*ConnectInfo
+	//entities map[string]*DeviceEntityInfo
+
+	// map["clientid"][{"topic": "xxx/xxx", "qos": 0, "node": "XXX"},]
+	subscribeTopics map[string][]map[string]interface{}
 }
 
 func NewHookService(client dapr.Client) *HookService {
@@ -71,37 +95,27 @@ func (s *HookService) OnClientConnack(ctx context.Context, in *pb.ClientConnackR
 
 func (s *HookService) OnClientConnected(ctx context.Context, in *pb.ClientConnectedRequest) (*pb.EmptySuccess, error) {
 	log.Debugf("clientInfo %v", in.GetClientinfo())
-
-	node := in.Clientinfo.Node
-	if s.clients != nil {
-		if _, ok := s.clients[node]; !ok{
-			log.Warn("repeated Node", node)
-			return &pb.EmptySuccess{}, nil
-		}
-	} else {
-		s.clients = make(map[string]*ConnectInfo)
-	}
-
+	username := in.Clientinfo.Username
 	ci := &ConnectInfo{
 		ClientID:   in.Clientinfo.Clientid,
 		UserName:   in.Clientinfo.Username,
 		PeerHost:   in.Clientinfo.Peerhost,
 		Protocol:   in.Clientinfo.Protocol,
 		SocketPort: strconv.Itoa(int(in.Clientinfo.Sockport)),
+		Online: true,
 	}
-	s.clients[node] = ci
 	infoMap :=map[string]interface{}{
-		"connectInfo": *ci,
+		connectInfoProperty: *ci,
 	}
-	// get device entity info
-	entity := s.GetEntityInfo(in.GetClientinfo().Node)
-	if nil == entity {
-		log.Warn("unknown message", in.GetClientinfo())
-		return &pb.EmptySuccess{}, nil
+	// get owner
+	owner, err := s.GetState(username, devEntitySuffixKey)
+	if err != nil {
+		return nil, err
 	}
+
 	data := map[string]interface{}{
-		"id": entity.EntityID,
-		"owner": entity.Owner,
+		"id": username,
+		"owner": string(owner),
 		"type": "device",
 		"source": "iothub",
 		"data": infoMap,
@@ -109,39 +123,42 @@ func (s *HookService) OnClientConnected(ctx context.Context, in *pb.ClientConnec
 	log.Debugf("pub data %s", data)
 	if err := s.daprClient.PublishEvent(context.Background(), "iothub-pubsub", "core-pub", data); err != nil {
 		log.Error(err)
+		return nil, err
 	}
+	//save ConnectInfo
+	ciByte, err := json.Marshal(ci)
+	if nil != err {
+		log.Error(err)
+		return nil, err
+	}
+	if err := s.SaveState(username, connectInfoSuffixKey, ciByte); err != nil {
+		return nil, err
+	}
+
 	return &pb.EmptySuccess{}, nil
 }
 
 func (s *HookService) OnClientDisconnected(ctx context.Context, in *pb.ClientDisconnectedRequest) (*pb.EmptySuccess, error) {
-	node := in.Clientinfo.Node
-	if s.clients != nil {
-		if _, ok := s.clients[node]; !ok{
-			log.Warn("repeated Node", node)
-		}
-	} else {
-		s.clients = make(map[string]*ConnectInfo)
-	}
+	username := in.Clientinfo.Username
 	ci := &ConnectInfo{
 		ClientID: "",
 		UserName: "",
 		PeerHost: "",
 		Protocol: "",
 		SocketPort: "",
+		Online: false,
 	}
-	s.clients[node] = ci
 	infoMap :=map[string]interface{}{
-		"connectInfo": *ci,
+		connectInfoProperty: *ci,
 	}
-	// get device entity info
-	entity := s.GetEntityInfo(in.GetClientinfo().Node)
-	if nil == entity {
-		log.Warn("unknown message", in.GetClientinfo())
-		return &pb.EmptySuccess{}, nil
+	// get owner
+	owner, err := s.GetState(username, devEntitySuffixKey)
+	if err != nil {
+		return nil, err
 	}
 	data := map[string]interface{}{
-		"id": entity.EntityID,
-		"owner": entity.Owner,
+		"id": username,
+		"owner": string(owner),
 		"type": "device",
 		"source": "iothub",
 		"data": infoMap,
@@ -149,6 +166,13 @@ func (s *HookService) OnClientDisconnected(ctx context.Context, in *pb.ClientDis
 	log.Debugf("pub data %s", data)
 	if err := s.daprClient.PublishEvent(context.Background(), "iothub-pubsub", "core-pub", data); err != nil {
 		log.Error(err)
+		return nil, err
+	}
+
+	//delete connect info from state store
+	if err := s.DeleteState(username, connectInfoSuffixKey); err != nil {
+		log.Errorf("Failed to delete state store: %v", err)
+		return nil, err
 	}
 	return &pb.EmptySuccess{}, nil
 }
@@ -177,6 +201,7 @@ func (s *HookService) parseToken(password string) (*TokenValidResponse, error) {
 		return nil, err
 	}
 
+
 	tokenResp := &TokenValidResponse{}
 	if err := json.Unmarshal(resp, tokenResp); nil != err{
 		return nil, err
@@ -184,22 +209,19 @@ func (s *HookService) parseToken(password string) (*TokenValidResponse, error) {
 	return tokenResp, nil
 }
 
-func (s *HookService) auth(password, node  string) bool {
+func (s *HookService) auth(password, username string) bool {
 	tokenResp, err := s.parseToken(password)
 	if nil != err{
 		log.Error(err)
 		return false
 	}
-	if tokenResp.Code != 0 {
-		log.Warn(tokenResp.Msg)
+	if (tokenResp.Code != 0) || (tokenResp.Data.EntityID != username) {
+		log.Errorf("auth result code: %v or invalid username %s", tokenResp.Msg, username)
 		return false
 	}
-	if s.entities == nil {
-		s.entities = make(map[string]*EntityInfo)
-	}
-	s.entities[node] = &EntityInfo{
-		EntityID: tokenResp.Data.EntityID,
-		Owner: tokenResp.Data.Owner,
+	//save owner
+	if err := s.SaveState(username, devEntitySuffixKey, []byte(tokenResp.Data.Owner)); err != nil {
+		return false
 	}
 	return true
 }
@@ -208,7 +230,7 @@ func (s *HookService) OnClientAuthenticate(ctx context.Context, in *pb.ClientAut
 	res := &pb.ValuedResponse{}
 	res.Type = pb.ValuedResponse_STOP_AND_RETURN
 	log.Debug(in.GetClientinfo())
-	authRes := s.auth(in.Clientinfo.GetPassword(), in.Clientinfo.GetNode())
+	authRes := s.auth(in.Clientinfo.GetPassword(), in.Clientinfo.GetUsername())
 	res.Value = &pb.ValuedResponse_BoolResult{BoolResult: authRes}
 	return res, nil
 }
@@ -218,22 +240,31 @@ func (s *HookService) OnClientCheckAcl(ctx context.Context, in *pb.ClientCheckAc
 }
 
 func (s *HookService) OnClientSubscribe(ctx context.Context, in *pb.ClientSubscribeRequest) (*pb.EmptySuccess, error) {
-	//in.GetClientinfo().
 	topics := in.GetTopicFilters()
 	for _, tf := range topics{
 		topic := tf.GetName()
-		if topic == AttributesTopic {
-			//todo create pubsub and subscription
-			//CreateSubscription()
+		username := getUserNameFromTopic(topic)
+		//get owner
+		value, err := s.GetState(username, devEntitySuffixKey)
+		if err != nil {
+			return nil, err
+		}
+		owner := string(value)
 
-		}else if topic == TelemetryTopic {
-			//todo create pubsub and subscription
+		log.Debugf("client subscribe topic: %s, username: %s", topic, username)
+		// 创建 core 订阅实体
+		if topic == AttributesTopic{
+			s.CreateSubscribeEntity(owner, username, attributeProperty)
 
-		}else if  topic == (CommandTopicRequest + "+"){
+		}else if topic == TelemetryTopic{
+			s.CreateSubscribeEntity(owner, username, telemetryProperty)
+
+		}else if  topic == CommandTopicRequest{
 			//订阅平台命令
 			//do nothing
+			s.CreateSubscribeEntity(owner, username, commandProperty)
 		}else if  topic == (AttributesTopicResponse + "+"){
-			//订阅平台属性
+			//边端订阅平台属性
 			//do nothing
 		}else{
 			return nil, errors.New("invalid topic")
@@ -244,6 +275,26 @@ func (s *HookService) OnClientSubscribe(ctx context.Context, in *pb.ClientSubscr
 }
 
 func (s *HookService) OnClientUnsubscribe(ctx context.Context, in *pb.ClientUnsubscribeRequest) (*pb.EmptySuccess, error) {
+	topics := in.GetTopicFilters()
+	for _, tf := range topics{
+		topic := tf.GetName()
+		username := getUserNameFromTopic(topic)
+		//get owner
+		owner, err := s.GetState(username, devEntitySuffixKey)
+		if err != nil {
+			return nil, err
+		}
+		// get subscription Id
+		subId, err := s.GetState(username, subEntitySuffixKey)
+		if err != nil {
+			return nil, err
+		}
+
+		// 删除 core 订阅实体
+		if err := s.DeleteSubscribeEntity(string(owner), username, string(subId)); nil != err {
+			return nil, err
+		}
+	}
 	return &pb.EmptySuccess{}, nil
 }
 
@@ -285,17 +336,6 @@ func GetUUID() string {
 	return id.String()
 }
 
-func (s *HookService) GetEntityInfo(node string) *EntityInfo {
-	if s.entities != nil {
-		if entity, ok := s.entities[node]; ok{
-			return entity
-		}else{
-			return nil
-		}
-	}
-	return nil
-}
-
 //get decode data
 func DecodeData(rawData []byte) interface{} {
 	var data interface{}
@@ -306,55 +346,70 @@ func DecodeData(rawData []byte) interface{} {
 	return data
 }
 
+func getUserNameFromTopic(topic string) (user string) {
+	items := strings.SplitN(topic, "/", 2)
+	if len(items) != 2 {
+		return
+	}
+	return nil
+}
+
 func (s *HookService) OnMessagePublish(ctx context.Context, in *pb.MessagePublishRequest) (*pb.ValuedResponse, error) {
 	res := &pb.ValuedResponse{}
 	res.Type = pb.ValuedResponse_STOP_AND_RETURN
 	res.Value = &pb.ValuedResponse_BoolResult{BoolResult: false}
+	//do nothing when receive tkeel attribute/telemetry/command event.
+	if in.Message.From == defaultDownStreamClientId{
+		log.Debugf("downstream data: %v", in.GetMessage())
+		res.Value = &pb.ValuedResponse_BoolResult{BoolResult: true}
+		return res, nil
+	}
 
-	entity := s.GetEntityInfo(in.GetMessage().Node)
-	if nil == entity {
-		log.Warn("unknown message", in.GetMessage())
-		return  res, nil
+	username := getUserNameFromTopic(in.Message.Topic)
+	//get owner
+	owner, err := s.GetState(username, devEntitySuffixKey)
+	if err != nil {
+		return nil, err
 	}
 	data := make(map[string]interface{})
-	data["id"] = entity.EntityID
-	data["owner"] = entity.Owner
+	data["id"] = username
+	data["owner"] = string(owner)
 	data["type"] = "device"
 	data["source"] = "iothub"
 	topic := in.GetMessage().Topic
 	payload := DecodeData(in.GetMessage().GetPayload())
-	if topic == RawDataTopic{
+	if topic == (username + "/" + RawDataTopic){
 		data["data"] = map[string]interface{}{
-			"rawData": map[string]interface{}{
+			rawDataProperty: map[string]interface{}{
 				"timestamp": GetTime(),
 				"topic": topic,
 				"data": payload,
 			},
 		}
-	}else if topic == AttributesTopic {
+	}else if topic == (username + "/" + AttributesTopic){
 		data["data"] = map[string]interface{}{
-			"attributes": map[string]interface{}{
+			attributeProperty: map[string]interface{}{
 				"timestamp": GetTime(),
 				"topic": topic,
 				"data": payload,
 			},
 		}
 
-	}else if topic == TelemetryTopic {
+	}else if topic == (username + "/" + TelemetryTopic){
 		data["data"] = map[string]interface{}{
-			"telemetry": map[string]interface{}{
+			telemetryProperty: map[string]interface{}{
 				"timestamp": GetTime(),
 				"topic": topic,
 				"data": payload,
 			},
 		}
-	}else if strings.HasPrefix(topic, AttributesTopicRequest){
-		id := strings.Split(topic, AttributesTopicRequest)[0]
+	}else if strings.HasPrefix(topic, username + "/" + AttributesTopicRequest){
+		id := strings.Split(topic, username + "/" + AttributesTopicRequest)[0]
 		log.Infof("get attribute id %s", id)
 		// 边缘端获取平台属性值
 		// todo 获取 payload keys, 向 core 查询 属性值， 返回给边端
-	}else if strings.HasPrefix(topic, AttributesTopicResponse){
-		id := strings.Split(topic, AttributesTopicResponse)[0]
+	}else if strings.HasPrefix(topic, username + "/" + AttributesTopicResponse){
+		id := strings.Split(topic, username + "/" + AttributesTopicResponse)[0]
 		log.Infof("cmd response id %s", id)
 		// 边缘端命令 response
 		// todo 返回一般的 cmd ack 给到 tkeel-device or other application
@@ -383,13 +438,14 @@ func (s *HookService) OnMessageAcked(ctx context.Context, in *pb.MessageAckedReq
 	return &pb.EmptySuccess{}, nil
 }
 
-func (s *HookService) CreateSubscription(owner, devId string)(*v1.SubscriptionResponse, error){
+// create SubscribeEntity
+func (s *HookService) CreateSubscribeEntity(owner, devId, itemType string) error {
 	subId := GetUUID()
 	subReq := &v1.SubscriptionObject{
 		PubsubName: "iothub-pubsub",
 		Topic: "sub-core",
-		Mode: "onChange",
-		Filter: fmt.Sprintf("insert into %s select %s.*", subId, devId),
+		Mode: "realtime",//fixme: it should be "onChange"
+		Filter: fmt.Sprintf("insert into %s select %s.%s", subId, devId, itemType),
 		Source: "tkeel-device" ,
 		Target: "iothub",
 	}
@@ -397,10 +453,10 @@ func (s *HookService) CreateSubscription(owner, devId string)(*v1.SubscriptionRe
 	req, err := json.Marshal(subReq)
 	if nil != err {
 		log.Error(err)
-		return nil, err
+		return err
 	}
 
-	url :=  fmt.Sprintf("apis/core/v1/subscriptions?id=%s&source=%s&owner=%s", subId, "iothub", owner)
+	url :=  fmt.Sprintf("apis/core/v1/subscriptions?id=%s&source=%s&owner=%s&type=%s", subId, "iothub", owner, "SUBSCRIPTION")
 	res, err := s.daprClient.InvokeMethodWithContent(
 		context.Background(),
 		"keel",
@@ -412,13 +468,62 @@ func (s *HookService) CreateSubscription(owner, devId string)(*v1.SubscriptionRe
 		},
 		)
 	if err != nil {
-		return nil, err
+		log.Errorf("create subscription err, %v", err)
+		return err
 	}
 
-	resp := new(v1.SubscriptionResponse)
-	if err := json.Unmarshal(res, resp); nil != err{
+	log.Debugf("create subscription ok, %v", res)
+	//save subId
+	if err := s.SaveState(devId, subEntitySuffixKey, []byte(subId)); err != nil {
+		return err
+	}
+	return nil
+}
+
+// delete SubscribeEntity
+func (s *HookService) DeleteSubscribeEntity(owner, devId, subId string) error {
+	url :=  fmt.Sprintf("apis/core/v1/subscriptions/%s?source=%s&owner=%s&type=%s", subId, "iothub", owner, "SUBSCRIPTION")
+	res, err := s.daprClient.InvokeMethodWithContent(
+		context.Background(),
+		"keel",
+		url,
+		http.MethodDelete,
+		&dapr.DataContent{
+			ContentType: "application/json",
+		},
+	)
+	if err != nil {
+		log.Errorf("delete subscription entity err %v", err)
+		return err
+	}
+	log.Debugf("delete subscription ok, %v", res)
+	return nil
+}
+
+// get state store
+func (s *HookService) GetState(username, suffixKey string) ([]byte, error) {
+	item, err := s.daprClient.GetState(context.Background(), iothubPrivateStatesStoreName, username + suffixKey)
+	if err != nil {
+		log.Errorf("Failed to get state: %v", err)
 		return nil, err
 	}
-	return resp, nil
+	return item.Value, nil
+}
 
+// save state store
+func (s *HookService) SaveState(username, suffixKey string, data []byte) error {
+	if err := s.daprClient.SaveState(context.Background(), iothubPrivateStatesStoreName, username + suffixKey, data); err != nil {
+		log.Errorf("Failed to persist state: %v\n", err)
+		return err
+	}
+	return nil
+}
+
+// delete state store
+func (s *HookService) DeleteState(username, suffixKey string) error {
+	if err := s.daprClient.DeleteState(context.Background(), iothubPrivateStatesStoreName, username + suffixKey); err != nil {
+		log.Errorf("Failed to delete state store: %v", err)
+		return err
+	}
+	return nil
 }
