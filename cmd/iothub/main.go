@@ -29,7 +29,7 @@ var (
 )
 
 func init() {
-	flag.StringVar(&Name, "name", "hello", "app name.")
+	flag.StringVar(&Name, "name", "iothub", "app name.")
 	flag.StringVar(&HTTPAddr, "http_addr", ":8080", "http listen address.")
 	flag.StringVar(&GRPCAddr, "grpc_addr", ":9000", "grpc listen address.")
 }
