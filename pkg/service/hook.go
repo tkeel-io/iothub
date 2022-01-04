@@ -47,6 +47,24 @@ const (
 	BaseUrl         = `http://localhost:3500/v1.0/invoke/keel/method/apis`
 )
 
+const (
+	//state store
+	iothubPrivateStatesStoreName = `iothub-private-store`
+	connectInfoSuffixKey         = `_ci`
+	devEntitySuffixKey 			 = `_de`
+	subEntitySuffixKey 			 = `_sub`
+
+	//different properties of device entity
+	rawDataProperty              = `rawData`
+	attributeProperty 			 = `attributes`
+	telemetryProperty 			 = `telemetry`
+	commandProperty   			 = `commands`
+	connectInfoProperty          = `connectinfo`
+	
+	// default client id for cloud
+	defaultDownStreamClientId    = `@tkeel.iothub.internal.clienId`
+)
+
 // HookService is used to implement emqx_exhook_v1.s *HookService.
 type HookService struct {
 	pb.UnimplementedHookProviderServer
@@ -222,6 +240,7 @@ func (s *HookService) parseToken(password string) (*TokenValidResponse, error) {
 	if err != nil {
 		return nil, err
 	}
+
 
 	tokenResp := &TokenValidResponse{}
 	if err := json.Unmarshal(body, tokenResp); nil != err {
