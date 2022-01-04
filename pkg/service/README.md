@@ -179,7 +179,7 @@ curl --location --request GET 'http://192.168.100.5:30707/apis/core/v1/entities/
     },
     "rawData": {
       "data": {
-        "msg": "hello"
+        "msg": "iothub"
       },
       "timestamp": 1640783468189722000,
       "topic": "71e7ce32-dc94-4c44-af95-e16002388993/v1/devices/me/raw"

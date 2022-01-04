@@ -33,6 +33,7 @@ podAnnotations:
   dapr.io/app-port: "8080"
   dapr.io/app-protocol: "http"
   dapr.io/log-level: "debug"
+  dapr.io/config: "iothub"
 
 podSecurityContext: {}
   # fsGroup: 2000
