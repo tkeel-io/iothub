@@ -35,7 +35,7 @@ const (
 	connectInfoProperty = `connectinfo`
 
 	// default client id for cloud
-	defaultDownStreamClientId = `@tkeel.iothub.internal.clienId`
+	defaultDownStreamClientId = `@tkeel.iothub.internal.clientId`
 
 	// default header key
 	tkeelAuthHeader = `x-tKeel-auth`
