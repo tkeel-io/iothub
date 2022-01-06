@@ -182,6 +182,11 @@ func (s *HookService) OnClientDisconnected(ctx context.Context, in *pb.ClientDis
 		log.Errorf("Failed to delete state store: %v", err)
 		return nil, err
 	}
+	//delete subId
+	if err:= s.DeleteState(username, subEntitySuffixKey); nil != err {
+		log.Errorf("delete subscription id err, %v", err)
+		return nil, err
+	}
 	return &pb.EmptySuccess{}, nil
 }
 
@@ -264,9 +269,9 @@ func (s *HookService) OnClientCheckAcl(ctx context.Context, in *pb.ClientCheckAc
 
 func (s *HookService) OnClientSubscribe(ctx context.Context, in *pb.ClientSubscribeRequest) (*pb.EmptySuccess, error) {
 	topics := in.GetTopicFilters()
+	username := in.Clientinfo.GetUsername()
 	for _, tf := range topics {
 		topic := tf.GetName()
-		username := getUserNameFromTopic(topic)
 		//get owner
 		value, err := s.GetState(username, devEntitySuffixKey)
 		if err != nil {
@@ -299,9 +304,10 @@ func (s *HookService) OnClientSubscribe(ctx context.Context, in *pb.ClientSubscr
 
 func (s *HookService) OnClientUnsubscribe(ctx context.Context, in *pb.ClientUnsubscribeRequest) (*pb.EmptySuccess, error) {
 	topics := in.GetTopicFilters()
+	username := in.Clientinfo.GetUsername()
 	for _, tf := range topics {
 		topic := tf.GetName()
-		username := getUserNameFromTopic(topic)
+		log.Debug("unSubscribe topic ", topic)
 		//get owner
 		owner, err := s.GetState(username, devEntitySuffixKey)
 		if err != nil {
@@ -477,6 +483,7 @@ func (s *HookService) CreateSubscribeEntity(owner, devId, itemType string) error
 		Source:     "tkeel-device",
 		Target:     "iothub",
 	}
+	log.Debug("create SubscribeEntity: ", subReq)
 
 	data, err := json.Marshal(subReq)
 	if nil != err {
