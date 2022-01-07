@@ -74,7 +74,7 @@ func (s *TopicService) TopicEventHandler(ctx context.Context, req *pb.TopicEvent
 	default:
 		return &pb.TopicEventResponse{Status: SubscriptionResponseStatusDrop}, nil
 	}
-	return &pb.TopicEventResponse{Status: SubscriptionResponseStatusDrop}, nil
+	return &pb.TopicEventResponse{Status: SubscriptionResponseStatusSuccess}, nil
 }
 
 func convertBase64ToMap(base64String string) map[string]interface{} {
