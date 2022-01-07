@@ -55,6 +55,15 @@ spec:
     {{- else if eq .Values.service.type "ClusterIP" }}
     nodePort: null
     {{- end }}
+  - name: mgmt
+    port: {{ .Values.service.mgmt | default 8081 }}
+    protocol: TCP
+    targetPort: 8081
+    {{- if and (or (eq .Values.service.type "NodePort") (eq .Values.service.type "LoadBalancer")) (not (empty .Values.service.nodePorts.mgmt)) }}
+    nodePort: {{ .Values.service.nodePorts.mgmt }}
+    {{- else if eq .Values.service.type "ClusterIP" }}
+    nodePort: null
+    {{- end }}
   - name: ws
     port: {{ .Values.service.ws | default 8083 }}
     protocol: TCP

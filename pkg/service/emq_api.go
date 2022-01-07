@@ -10,7 +10,7 @@ import (
 )
 
 // emq deployed address
-const ServerAddress string = "http://192.168.100.5:30855/api"
+const ServerAddress string = "http://192.168.123.9:30855/api"
 
 // base64 encode: admin:public --> YWRtaW46cHVibGlj
 const AuthorizationValue string = "Basic YWRtaW46cHVibGlj"
@@ -30,7 +30,7 @@ func GetEmqInfo(infoType string) ([]map[string]interface{}, error) {
 		return nil, errors.New("invalid infoType")
 	}
 
-	req, err := http.NewRequest("GET", url, nil)
+	req, err := http.NewRequest(http.MethodGet, url, nil)
 	if nil != err {
 		return nil, err
 	}
@@ -72,9 +72,10 @@ func GetEmqInfo(infoType string) ([]map[string]interface{}, error) {
 }
 
 func Publish(username, topic, clientId string, qos int, retain bool, payload interface{}) error {
-	url := ServerAddress + "/api/v4/mqtt/publish"
+	log.Debugf("send data to client, username: %s, topic:%s, payload: %v", username, topic, payload)
+	url := ServerAddress + "/v4/mqtt/publish"
 	pubData := map[string]interface{}{
-		"topic": username + "/" + topic,
+		"topic": topic,
 		"payload": payload,
 		"qos": qos,
 		"retain": retain,
@@ -85,7 +86,14 @@ func Publish(username, topic, clientId string, qos int, retain bool, payload int
 		log.Error("error ", err)
 		return err
 	}
-	resp, err := http.Post(url, "application/json", bytes.NewBuffer(data))
+	req, err := http.NewRequest(http.MethodPost, url, bytes.NewBuffer(data))
+	if nil != err {
+		return err
+	}
+
+	req.Header.Add("Content-Type", "application/json")
+	req.Header.Add("Authorization", AuthorizationValue)
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		log.Error("error ", err)
 		return err

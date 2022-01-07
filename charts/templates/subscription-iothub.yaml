@@ -1,10 +1,10 @@
 apiVersion: dapr.io/v1alpha1
 kind: Subscription
 metadata:
-  name: iothub-sub
+  name: iothub-pubsub
 spec:
-  topic: core-pub
+  topic: sub-core
   route: /v1/topic
   pubsubname: iothub-pubsub
 scopes:
-  - core
+  - iothub

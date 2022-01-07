@@ -100,7 +100,7 @@ service:
     mqtt:
     coap: 30588
     mqttssl:
-    mgmt:
+    mgmt: 30855
     ws:
     wss:
     dashboard:
