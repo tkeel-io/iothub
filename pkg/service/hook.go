@@ -32,7 +32,13 @@ const (
 	attributeProperty   = `attributes`
 	telemetryProperty   = `telemetry`
 	commandProperty     = `commands`
-	connectInfoProperty = `connectinfo`
+	connectInfoProperty = `connectInfo`
+
+	// mark
+	MarkUpStream = "upstream"
+	MarkDownStream = "downstream"
+	MarkConnecting = "connecting"
+
 
 	// default client id for cloud
 	defaultDownStreamClientId = `@tkeel.iothub.internal.clientId`
@@ -113,7 +119,15 @@ func (s *HookService) OnClientConnected(ctx context.Context, in *pb.ClientConnec
 		Online:     true,
 	}
 	infoMap := map[string]interface{}{
-		connectInfoProperty: *ci,
+		//connectInfoProperty: *ci,
+		rawDataProperty: map[string]interface{}{
+			"id":     username,
+			"ts":     GetTime(),
+			"values": *ci,
+			"path":   "",
+			"type":   connectInfoProperty,
+			"mark":   MarkConnecting,
+		},
 	}
 	// get owner
 	owner, err := s.GetState(username, devEntitySuffixKey)
@@ -157,7 +171,15 @@ func (s *HookService) OnClientDisconnected(ctx context.Context, in *pb.ClientDis
 		Online:     false,
 	}
 	infoMap := map[string]interface{}{
-		connectInfoProperty: *ci,
+		//connectInfoProperty: *ci,
+		rawDataProperty: map[string]interface{}{
+			"id":     username,
+			"ts":     GetTime(),
+			"values": *ci,
+			"path":   "",
+			"type":   connectInfoProperty,
+			"mark":   MarkConnecting,
+		},
 	}
 	// get owner
 	owner, err := s.GetState(username, devEntitySuffixKey)
@@ -284,9 +306,6 @@ func (s *HookService) OnClientSubscribe(ctx context.Context, in *pb.ClientSubscr
 		if topic == AttributesTopic {
 			s.CreateSubscribeEntity(owner, username, attributeProperty)
 
-		} else if topic == TelemetryTopic {
-			s.CreateSubscribeEntity(owner, username, telemetryProperty)
-
 		} else if topic == CommandTopicRequest {
 			//订阅平台命令
 			//do nothing
@@ -407,45 +426,94 @@ func (s *HookService) OnMessagePublish(ctx context.Context, in *pb.MessagePublis
 	data["source"] = "iothub"
 	topic := in.GetMessage().Topic
 	payload := DecodeData(in.GetMessage().GetPayload())
-	if topic == (username + "/" + RawDataTopic) {
-		data["data"] = map[string]interface{}{
-			rawDataProperty: map[string]interface{}{
-				"timestamp": GetTime(),
-				"topic":     topic,
-				"data":      payload,
-			},
-		}
-	} else if topic == (username + "/" + AttributesTopic) {
-		data["data"] = map[string]interface{}{
-			attributeProperty: map[string]interface{}{
-				"timestamp": GetTime(),
-				"topic":     topic,
-				"data":      payload,
-			},
-		}
+	var propertyType string
+	switch topic {
+	case username + "/" + AttributesTopic:
+		fallthrough
+	case username + "/" + AttributesGatewayTopic:
+		// 变短上传属性
+		propertyType = attributeProperty
 
-	} else if topic == (username + "/" + TelemetryTopic) {
-		data["data"] = map[string]interface{}{
-			telemetryProperty: map[string]interface{}{
-				"timestamp": GetTime(),
-				"topic":     topic,
-				"data":      payload,
-			},
-		}
-	} else if strings.HasPrefix(topic, username+"/"+AttributesTopicRequest) {
-		id := strings.Split(topic, username+"/"+AttributesTopicRequest)[0]
-		log.Infof("get attribute id %s", id)
+	case username + "/" + TelemetryTopic:
+		fallthrough
+	case username + "/" + TelemetryGatewayTopic:
+		// 边端上传遥测
+		propertyType = telemetryProperty
+
+	case username+"/"+AttributesTopicRequest:
 		// 边缘端获取平台属性值
+		log.Infof("receive attribute requests payload %v", payload)
 		// todo 获取 payload keys, 向 core 查询 属性值， 返回给边端
-	} else if strings.HasPrefix(topic, username+"/"+AttributesTopicResponse) {
-		id := strings.Split(topic, username+"/"+AttributesTopicResponse)[0]
-		log.Infof("cmd response id %s", id)
+		return res, nil
+
+	case username+"/"+CommandTopicResponse:
 		// 边缘端命令 response
+		log.Infof("receive command response payload %v", payload)
 		// todo 返回一般的 cmd ack 给到 tkeel-device or other application
-	} else {
-		log.Warnf("invalid topic %s", topic)
-		return res, errors.New("invalid topic")
+		return res, nil
+
+	default:
+		propertyType = rawDataProperty
 	}
+	data["data"] = map[string]interface{}{
+		rawDataProperty: map[string]interface{}{
+			"id":     username,
+			"ts":     GetTime(),
+			"values": payload,
+			"path":   topic,
+			"type":   propertyType,
+			"mark":   MarkUpStream,
+		},
+	}
+	//if topic == (username + "/" + AttributesTopic) || topic == (username + "/" + AttributesGatewayTopic) {
+	//	data["data"] = map[string]interface{}{
+	//		attributeProperty: map[string]interface{}{
+	//			"id": username,
+	//			"ts":   GetTime(),
+	//			"values": payload,
+	//			"path": topic,
+	//			"type": attributeProperty,
+	//			"mark": MarkUpStream,
+	//		},
+	//	}
+	//
+	//} else if topic == (username + "/" + TelemetryTopic) || topic == (username + "/" + TelemetryGatewayTopic) {
+	//	data["data"] = map[string]interface{}{
+	//		telemetryProperty: map[string]interface{}{
+	//			"id": username,
+	//			"ts":   GetTime(),
+	//			"values": payload,
+	//			"path": topic,
+	//			"type": telemetryProperty,
+	//			"mark": MarkUpStream,
+	//		},
+	//	}
+	//} else if strings.HasPrefix(topic, username+"/"+AttributesTopicRequest) {
+	//	id := strings.Split(topic, username+"/"+AttributesTopicRequest)[0]
+	//	log.Infof("get attribute id %s", id)
+	//	// 边缘端获取平台属性值
+	//	// todo 获取 payload keys, 向 core 查询 属性值， 返回给边端
+	//} else if strings.HasPrefix(topic, username+"/"+AttributesTopicResponse) {
+	//	id := strings.Split(topic, username+"/"+AttributesTopicResponse)[0]
+	//	log.Infof("cmd response id %s", id)
+	//	// 边缘端命令 response
+	//	// todo 返回一般的 cmd ack 给到 tkeel-device or other application
+	//} else if strings.HasPrefix(topic, username+"/"){
+	//	// 有效的非平台预定义的 topic 表示向平台发送原始数据
+	//	data["data"] = map[string]interface{}{
+	//		rawDataProperty: map[string]interface{}{
+	//			"id": username,
+	//			"ts":    GetTime(),
+	//			"values": payload,
+	//			"path": topic,
+	//			"type": rawDataProperty,
+	//			"mark": MarkUpStream,
+	//		},
+	//	}
+	//} else {
+	//	log.Warnf("invalid topic %s", topic)
+	//	return res, errors.New("invalid topic")
+	//}
 	log.Debug(data)
 	if err := s.daprClient.PublishEvent(context.Background(), "iothub-pubsub", "core-pub", data); err != nil {
 		log.Error(err)
@@ -515,6 +583,7 @@ func (s *HookService) CreateSubscribeEntity(owner, devId, itemType string) error
 
 	log.Debugf("create subscription ok, %v", res)
 	//save subId
+	// todo 保存必要的数据，收到 pubsub 时能够区分，执行对应的逻辑， key-> subId
 	if err := s.SaveState(devId, subEntitySuffixKey, []byte(subId)); err != nil {
 		return err
 	}
