@@ -2,11 +2,11 @@ package service
 
 
 type ConnectInfo struct {
-	ClientID     string    `json:"_clientid"`
-	PeerHost     string    `json:"_peerhost"`
-	SocketPort   string    `json:"_socketport"`
+	ClientID     string    `json:"_clientId"`
+	PeerHost     string    `json:"_peerHost"`
+	SocketPort   string    `json:"_sockPort"`
 	Protocol     string    `json:"_protocol"`
-	UserName     string    `json:"_username"`
+	UserName     string    `json:"_userName"`
 	Online       bool      `json:"_online"`
 	Owner        string     `json:"_owner"`
 }
