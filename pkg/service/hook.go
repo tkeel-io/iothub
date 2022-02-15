@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"github.com/Shopify/sarama"
 	"io/ioutil"
 	"net/http"
 	"strconv"
@@ -35,10 +36,9 @@ const (
 	connectInfoProperty = `connectInfo`
 
 	// mark
-	MarkUpStream = "upstream"
+	MarkUpStream   = "upstream"
 	MarkDownStream = "downstream"
 	MarkConnecting = "connecting"
-
 
 	// default client id for cloud
 	defaultDownStreamClientId = `@tkeel.iothub.internal.clientId`
@@ -50,7 +50,7 @@ const (
 	defultRole      = `admin`
 
 	// default base url
-	BaseUrl         = `http://localhost:3500/v1.0/invoke/keel/method/apis`
+	BaseUrl = `http://localhost:3500/v1.0/invoke/keel/method/apis`
 )
 
 // HookService is used to implement emqx_exhook_v1.s *HookService.
@@ -62,10 +62,35 @@ type HookService struct {
 
 	// map["clientid"][{"topic": "xxx/xxx", "qos": 0, "node": "XXX"},]
 	subscribeTopics map[string][]map[string]interface{}
+	producer        sarama.AsyncProducer
 }
 
 func NewHookService(client dapr.Client) *HookService {
-	return &HookService{daprClient: client}
+	config := sarama.NewConfig()
+	config.Producer.Return.Successes = true
+	config.Producer.Return.Errors = true
+	address := []string{"localhost:9092"}
+	p, err := sarama.NewAsyncProducer(address, config)
+	// TODO: error
+	if err != nil {
+		panic("error")
+	}
+	go func(p sarama.AsyncProducer) {
+		errs := p.Errors()
+		success := p.Successes()
+		for {
+			select {
+			case rc := <-errs:
+				if rc != nil {
+					// TODO:
+				}
+				return
+			case _ = <-success:
+			}
+		}
+	}(p)
+	//
+	return &HookService{daprClient: client, producer: p}
 }
 
 // HookProviderServer callbacks
@@ -205,7 +230,7 @@ func (s *HookService) OnClientDisconnected(ctx context.Context, in *pb.ClientDis
 		return nil, err
 	}
 	//delete subId
-	if err:= s.DeleteState(username, subEntitySuffixKey); nil != err {
+	if err := s.DeleteState(username, subEntitySuffixKey); nil != err {
 		log.Errorf("delete subscription id err, %v", err)
 		return nil, err
 	}
@@ -249,7 +274,6 @@ func (s *HookService) parseToken(password string) (*TokenValidResponse, error) {
 	if err != nil {
 		return nil, err
 	}
-
 
 	tokenResp := &TokenValidResponse{}
 	if err := json.Unmarshal(body, tokenResp); nil != err {
@@ -426,45 +450,52 @@ func (s *HookService) OnMessagePublish(ctx context.Context, in *pb.MessagePublis
 	data["source"] = "iothub"
 	topic := in.GetMessage().Topic
 	payload := DecodeData(in.GetMessage().GetPayload())
-	var propertyType string
-	switch topic {
-	case username + "/" + AttributesTopic:
-		fallthrough
-	case username + "/" + AttributesGatewayTopic:
-		// 变短上传属性
-		propertyType = attributeProperty
-
-	case username + "/" + TelemetryTopic:
-		fallthrough
-	case username + "/" + TelemetryGatewayTopic:
-		// 边端上传遥测
-		propertyType = telemetryProperty
-
-	case username+"/"+AttributesTopicRequest:
-		// 边缘端获取平台属性值
-		log.Infof("receive attribute requests payload %v", payload)
-		// todo 获取 payload keys, 向 core 查询 属性值， 返回给边端
-		return res, nil
-
-	case username+"/"+CommandTopicResponse:
-		// 边缘端命令 response
-		log.Infof("receive command response payload %v", payload)
-		// todo 返回一般的 cmd ack 给到 tkeel-device or other application
-		return res, nil
-
-	default:
-		propertyType = rawDataProperty
-	}
-	data["data"] = map[string]interface{}{
-		rawDataProperty: map[string]interface{}{
-			"id":     username,
-			"ts":     GetTime(),
-			"values": payload,
-			"path":   topic,
-			"type":   propertyType,
-			"mark":   MarkUpStream,
-		},
-	}
+	//var propertyType string
+	//switch topic {
+	//case username + "/" + AttributesTopic:
+	//    fallthrough
+	//case username + "/" + AttributesGatewayTopic:
+	//    // 变短上传属性
+	//    propertyType = attributeProperty
+	//
+	//case username + "/" + TelemetryTopic:
+	//    fallthrough
+	//case username + "/" + TelemetryGatewayTopic:
+	//    // 边端上传遥测
+	//    propertyType = telemetryProperty
+	//
+	//case username + "/" + AttributesTopicRequest:
+	//    // 边缘端获取平台属性值
+	//    log.Infof("receive attribute requests payload %v", payload)
+	//    // todo 获取 payload keys, 向 core 查询 属性值， 返回给边端
+	//    return res, nil
+	//
+	//case username + "/" + CommandTopicResponse:
+	//    // 边缘端命令 response
+	//    log.Infof("receive command response payload %v", payload)
+	//    // todo 返回一般的 cmd ack 给到 tkeel-device or other application
+	//    return res, nil
+	//
+	//default:
+	//    propertyType = rawDataProperty
+	//}
+	/*
+		{
+		   "id": "device_123",
+		   "ts": 1641349927430079500,
+		   "path": "device_123/v1/devices/me/telemetry"
+		   "values": {
+		        "telemetry1": "value1",
+		        "telemetry2": "value2"
+		   },
+		   "type": "telemetry",
+		   "mark": "upstream"
+		}
+	*/
+	data["ts"] = GetTime()
+	data["values"] = payload
+	data["path"] = topic
+	data["type"] = "telemetry"
 	//if topic == (username + "/" + AttributesTopic) || topic == (username + "/" + AttributesGatewayTopic) {
 	//	data["data"] = map[string]interface{}{
 	//		attributeProperty: map[string]interface{}{
@@ -514,11 +545,20 @@ func (s *HookService) OnMessagePublish(ctx context.Context, in *pb.MessagePublis
 	//	log.Warnf("invalid topic %s", topic)
 	//	return res, errors.New("invalid topic")
 	//}
-	log.Debug(data)
-	if err := s.daprClient.PublishEvent(context.Background(), "iothub-pubsub", "core-pub", data); err != nil {
-		log.Error(err)
-		return res, nil
+	//log.Debug(data)
+	v, err := json.Marshal(data)
+	if err != nil {
+		res.Value = &pb.ValuedResponse_BoolResult{BoolResult: true}
 	}
+	//
+	s.producer.Input() <- &sarama.ProducerMessage{
+		Topic: "core-pub",
+		Value: sarama.ByteEncoder(v),
+	}
+	//if err := s.daprClient.PublishEvent(context.Background(), "iothub-pubsub", "core-pub", data); err != nil {
+	//    log.Error(err)
+	//    return res, nil
+	//}
 	res.Value = &pb.ValuedResponse_BoolResult{BoolResult: true}
 	return res, nil
 }
@@ -559,7 +599,7 @@ func (s *HookService) CreateSubscribeEntity(owner, devId, itemType string) error
 		return err
 	}
 
-	url := fmt.Sprintf(BaseUrl + "/core/v1/subscriptions?id=%s&source=%s&owner=%s&type=%s", subId, "iothub", owner, "SUBSCRIPTION")
+	url := fmt.Sprintf(BaseUrl+"/core/v1/subscriptions?id=%s&source=%s&owner=%s&type=%s", subId, "iothub", owner, "SUBSCRIPTION")
 	payload := strings.NewReader(string(data))
 	req, err := http.NewRequest(http.MethodPost, url, payload)
 	if err != nil {
