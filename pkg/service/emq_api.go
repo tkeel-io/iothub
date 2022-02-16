@@ -10,7 +10,8 @@ import (
 )
 
 // emq deployed address
-const ServerAddress string = "http://192.168.123.9:30855/api"
+//const ServerAddress string = "http://192.168.123.9:30855/api"
+const ServerAddress string = "http://emqx.keel-system:1883/api"
 
 // base64 encode: admin:public --> YWRtaW46cHVibGlj
 const AuthorizationValue string = "Basic YWRtaW46cHVibGlj"

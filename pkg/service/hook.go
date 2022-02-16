@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	"reflect"
 	"strconv"
 	"strings"
 	"time"
@@ -39,6 +40,9 @@ const (
 	MarkDownStream = "downstream"
 	MarkConnecting = "connecting"
 
+	// subscription mode
+	onChangeMode = "onChange"
+	realtimeMode = "realtime"
 
 	// default client id for cloud
 	defaultDownStreamClientId = `@tkeel.iothub.internal.clientId`
@@ -130,7 +134,7 @@ func (s *HookService) OnClientConnected(ctx context.Context, in *pb.ClientConnec
 		},
 	}
 	// get owner
-	owner, err := s.GetState(username, devEntitySuffixKey)
+	owner, err := s.GetState(username + devEntitySuffixKey)
 	if err != nil {
 		return nil, err
 	}
@@ -153,7 +157,7 @@ func (s *HookService) OnClientConnected(ctx context.Context, in *pb.ClientConnec
 		log.Error(err)
 		return nil, err
 	}
-	if err := s.SaveState(username, connectInfoSuffixKey, ciByte); err != nil {
+	if err := s.SaveState(username + connectInfoSuffixKey, ciByte); err != nil {
 		return nil, err
 	}
 
@@ -182,7 +186,7 @@ func (s *HookService) OnClientDisconnected(ctx context.Context, in *pb.ClientDis
 		},
 	}
 	// get owner
-	owner, err := s.GetState(username, devEntitySuffixKey)
+	owner, err := s.GetState(username + devEntitySuffixKey)
 	if err != nil {
 		return nil, err
 	}
@@ -200,15 +204,37 @@ func (s *HookService) OnClientDisconnected(ctx context.Context, in *pb.ClientDis
 	}
 
 	//delete connect info from state store
-	if err := s.DeleteState(username, connectInfoSuffixKey); err != nil {
+	if err := s.DeleteState(username + connectInfoSuffixKey); err != nil {
 		log.Errorf("Failed to delete state store: %v", err)
 		return nil, err
 	}
-	//delete subId
-	if err:= s.DeleteState(username, subEntitySuffixKey); nil != err {
-		log.Errorf("delete subscription id err, %v", err)
+	// get all subscription id
+	subIds, err := s.GetState(username)
+	if err != nil {
 		return nil, err
 	}
+	// delete topic id and subscription id
+	for _, subId := range subIds{
+		id := string(subId)
+		topic, err := s.GetState(id)
+		if err != nil {
+			return nil, err
+		}
+		if err:= s.DeleteState(string(topic)); nil != err {
+			log.Errorf("delete topic err, %v", err)
+			return nil, err
+		}
+		if err:= s.DeleteState(id); nil != err {
+			log.Errorf("delete subscription id err, %v", err)
+			return nil, err
+		}
+	}
+	// delete device id
+	if err:= s.DeleteState(username); nil != err {
+		log.Errorf("delete device id err, %v", err)
+		return nil, err
+	}
+
 	return &pb.EmptySuccess{}, nil
 }
 
@@ -270,7 +296,7 @@ func (s *HookService) auth(password, username string) bool {
 		return false
 	}
 	//save owner
-	if err := s.SaveState(username, devEntitySuffixKey, []byte(tokenResp.Data.Owner)); err != nil {
+	if err := s.SaveState(username + devEntitySuffixKey, []byte(tokenResp.Data.Owner)); err != nil {
 		return false
 	}
 	return true
@@ -295,7 +321,7 @@ func (s *HookService) OnClientSubscribe(ctx context.Context, in *pb.ClientSubscr
 	for _, tf := range topics {
 		topic := tf.GetName()
 		//get owner
-		value, err := s.GetState(username, devEntitySuffixKey)
+		value, err := s.GetState(username + devEntitySuffixKey)
 		if err != nil {
 			return nil, err
 		}
@@ -304,15 +330,20 @@ func (s *HookService) OnClientSubscribe(ctx context.Context, in *pb.ClientSubscr
 		log.Debugf("client subscribe topic: %s, username: %s", topic, username)
 		// 创建 core 订阅实体
 		if topic == AttributesTopic {
-			s.CreateSubscribeEntity(owner, username, attributeProperty)
-
+			// 一般设备订阅平台属性变化
+			s.CreateSubscribeEntity(owner, username, attributeProperty, topic, onChangeMode)
+		} else if topic == AttributesGatewayTopic {
+			//网关设备订阅平台属性变化
+			//{"device": "Device A", "data": {"attribute1": "value1", "attribute2": 42}} // tb payload
+			//var devices []string
+			//s.CreateSubscribeEntity(owner, username, attributeProperty, topic, onChangeMode)
 		} else if topic == CommandTopicRequest {
 			//订阅平台命令
+			s.CreateSubscribeEntity(owner, username, commandProperty, topic, realtimeMode)
+		} else if topic == AttributesTopicResponse || topic ==  AttributesGatewayTopicResponse {
+			//边端获取平台属性值
 			//do nothing
-			s.CreateSubscribeEntity(owner, username, commandProperty)
-		} else if topic == (AttributesTopicResponse + "+") {
-			//边端订阅平台属性
-			//do nothing
+			log.Debugf("client subscribe topic %s", topic)
 		} else {
 			return nil, errors.New("invalid topic")
 		}
@@ -328,18 +359,28 @@ func (s *HookService) OnClientUnsubscribe(ctx context.Context, in *pb.ClientUnsu
 		topic := tf.GetName()
 		log.Debug("unSubscribe topic ", topic)
 		//get owner
-		owner, err := s.GetState(username, devEntitySuffixKey)
+		owner, err := s.GetState(username + devEntitySuffixKey)
 		if err != nil {
 			return nil, err
 		}
 		// get subscription Id
-		subId, err := s.GetState(username, subEntitySuffixKey)
+		subId, err := s.GetState(topic)
 		if err != nil {
+			return nil, err
+		}
+		// delete topic Id
+		if err:= s.DeleteState(topic); nil != err {
+			log.Errorf("delete topic id err, %v", err)
 			return nil, err
 		}
 
 		// 删除 core 订阅实体
 		if err := s.DeleteSubscribeEntity(string(owner), username, string(subId)); nil != err {
+			return nil, err
+		}
+		// delete subscription Id
+		if err:= s.DeleteState(string(subId)); nil != err {
+			log.Errorf("delete subscription id err, %v", err)
 			return nil, err
 		}
 	}
@@ -415,7 +456,7 @@ func (s *HookService) OnMessagePublish(ctx context.Context, in *pb.MessagePublis
 
 	username := getUserNameFromTopic(in.Message.Topic)
 	//get owner
-	owner, err := s.GetState(username, devEntitySuffixKey)
+	owner, err := s.GetState(username + devEntitySuffixKey)
 	if err != nil {
 		return nil, err
 	}
@@ -426,6 +467,42 @@ func (s *HookService) OnMessagePublish(ctx context.Context, in *pb.MessagePublis
 	data["source"] = "iothub"
 	topic := in.GetMessage().Topic
 	payload := DecodeData(in.GetMessage().GetPayload())
+
+	// 获取平台属性值
+	if strings.HasPrefix(topic, username+"/"+AttributesTopicRequest){
+		// 一般设备
+		log.Infof("receive attribute requests payload %v", payload)
+		// todo 获取 payload keys, 向 core 查询 属性值， 返回给边端
+		mapData := payload.(map[string]interface{})
+		// {"clientKeys":"attribute1,attribute2", "sharedKeys":"shared1,shared2"} // tb payload
+		// {“keys”: "attribute1,attribute2"}
+
+		requestId := strings.Split(topic, username+"/"+AttributesTopicRequest)[0]
+		ackTopic := strings.Replace(AttributesTopicResponse, "+", requestId, 1)
+		if err := Publish(username, ackTopic, defaultDownStreamClientId, 0, false, mapData); nil != err {
+			return nil, err
+		}
+
+		res.Value = &pb.ValuedResponse_BoolResult{BoolResult: true}
+		return res, nil
+	}else if topic == AttributesGatewayTopicRequest{
+		// 网关设备
+		mapData := payload.(map[string]interface{})
+		//device := mapData["device"].(string)
+		//attributeKey := mapData["key"].(string)
+		////todo: 向 core 查询 属性值， 返回给边端
+		//mapData["value"] := GetAttributes(device, attributeKey)
+
+		delete(mapData, "key")
+		ackTopic := AttributesGatewayTopicResponse
+		if err := Publish(username, ackTopic, defaultDownStreamClientId, 0, false, mapData); nil != err {
+			return nil, err
+		}
+
+		res.Value = &pb.ValuedResponse_BoolResult{BoolResult: true}
+		return res, nil
+	}
+
 	var propertyType string
 	switch topic {
 	case username + "/" + AttributesTopic:
@@ -440,16 +517,11 @@ func (s *HookService) OnMessagePublish(ctx context.Context, in *pb.MessagePublis
 		// 边端上传遥测
 		propertyType = telemetryProperty
 
-	case username+"/"+AttributesTopicRequest:
-		// 边缘端获取平台属性值
-		log.Infof("receive attribute requests payload %v", payload)
-		// todo 获取 payload keys, 向 core 查询 属性值， 返回给边端
-		return res, nil
-
 	case username+"/"+CommandTopicResponse:
 		// 边缘端命令 response
 		log.Infof("receive command response payload %v", payload)
 		// todo 返回一般的 cmd ack 给到 tkeel-device or other application
+		res.Value = &pb.ValuedResponse_BoolResult{BoolResult: true}
 		return res, nil
 
 	default:
@@ -465,55 +537,6 @@ func (s *HookService) OnMessagePublish(ctx context.Context, in *pb.MessagePublis
 			"mark":   MarkUpStream,
 		},
 	}
-	//if topic == (username + "/" + AttributesTopic) || topic == (username + "/" + AttributesGatewayTopic) {
-	//	data["data"] = map[string]interface{}{
-	//		attributeProperty: map[string]interface{}{
-	//			"id": username,
-	//			"ts":   GetTime(),
-	//			"values": payload,
-	//			"path": topic,
-	//			"type": attributeProperty,
-	//			"mark": MarkUpStream,
-	//		},
-	//	}
-	//
-	//} else if topic == (username + "/" + TelemetryTopic) || topic == (username + "/" + TelemetryGatewayTopic) {
-	//	data["data"] = map[string]interface{}{
-	//		telemetryProperty: map[string]interface{}{
-	//			"id": username,
-	//			"ts":   GetTime(),
-	//			"values": payload,
-	//			"path": topic,
-	//			"type": telemetryProperty,
-	//			"mark": MarkUpStream,
-	//		},
-	//	}
-	//} else if strings.HasPrefix(topic, username+"/"+AttributesTopicRequest) {
-	//	id := strings.Split(topic, username+"/"+AttributesTopicRequest)[0]
-	//	log.Infof("get attribute id %s", id)
-	//	// 边缘端获取平台属性值
-	//	// todo 获取 payload keys, 向 core 查询 属性值， 返回给边端
-	//} else if strings.HasPrefix(topic, username+"/"+AttributesTopicResponse) {
-	//	id := strings.Split(topic, username+"/"+AttributesTopicResponse)[0]
-	//	log.Infof("cmd response id %s", id)
-	//	// 边缘端命令 response
-	//	// todo 返回一般的 cmd ack 给到 tkeel-device or other application
-	//} else if strings.HasPrefix(topic, username+"/"){
-	//	// 有效的非平台预定义的 topic 表示向平台发送原始数据
-	//	data["data"] = map[string]interface{}{
-	//		rawDataProperty: map[string]interface{}{
-	//			"id": username,
-	//			"ts":    GetTime(),
-	//			"values": payload,
-	//			"path": topic,
-	//			"type": rawDataProperty,
-	//			"mark": MarkUpStream,
-	//		},
-	//	}
-	//} else {
-	//	log.Warnf("invalid topic %s", topic)
-	//	return res, errors.New("invalid topic")
-	//}
 	log.Debug(data)
 	if err := s.daprClient.PublishEvent(context.Background(), "iothub-pubsub", "core-pub", data); err != nil {
 		log.Error(err)
@@ -541,12 +564,12 @@ func AddDefaultAuthHeader(req *http.Request) {
 }
 
 // create SubscribeEntity
-func (s *HookService) CreateSubscribeEntity(owner, devId, itemType string) error {
+func (s *HookService) CreateSubscribeEntity(owner, devId, itemType, subscriptionTopic, subscriptionMode string) error {
 	subId := GetUUID()
 	subReq := &v1.SubscriptionObject{
 		PubsubName: "iothub-pubsub",
 		Topic:      "sub-core",
-		Mode:       "realtime", //fixme: it should be "onChange"
+		Mode:       subscriptionMode,
 		Filter:     fmt.Sprintf("insert into %s select %s.%s", subId, devId, itemType),
 		Source:     "tkeel-device",
 		Target:     "iothub",
@@ -582,9 +605,35 @@ func (s *HookService) CreateSubscribeEntity(owner, devId, itemType string) error
 	}
 
 	log.Debugf("create subscription ok, %v", res)
-	//save subId
-	// todo 保存必要的数据，收到 pubsub 时能够区分，执行对应的逻辑， key-> subId
-	if err := s.SaveState(devId, subEntitySuffixKey, []byte(subId)); err != nil {
+	//save subId 保存必要的数据，收到 pubsub 时能够区分，执行对应的逻辑， subId-> topic
+	if err := s.SaveState(subId, []byte(subscriptionTopic)); err != nil {
+		return err
+	}
+	// save topic, 取消订阅时获取 topic-> subId
+	if err := s.SaveState(subscriptionTopic, []byte(subId)); err != nil {
+		return err
+	}
+	return s.SaveSubscriptionId(devId, subId)
+}
+
+// 保存每一个设备的 subIds
+func (s *HookService) SaveSubscriptionId(devId, subId string) error{
+	subscriptionIds, err := s.GetState(devId)
+	if err != nil {
+		return err
+	}
+	var subIds interface{}
+
+	if err := json.Unmarshal(subscriptionIds, &subIds); nil != err{
+		return err
+	}
+	idArray := reflect.ValueOf(subIds)
+	idArray.Field(idArray.Len()).SetString(subId)
+	newSubIds, err := json.Marshal(idArray.Interface())
+	if err != nil {
+		return err
+	}
+	if err := s.SaveState(devId, newSubIds); err != nil {
 		return err
 	}
 	return nil
@@ -611,8 +660,8 @@ func (s *HookService) DeleteSubscribeEntity(owner, devId, subId string) error {
 }
 
 // get state store
-func (s *HookService) GetState(username, suffixKey string) ([]byte, error) {
-	item, err := s.daprClient.GetState(context.Background(), iothubPrivateStatesStoreName, username+suffixKey)
+func (s *HookService) GetState(key string) ([]byte, error) {
+	item, err := s.daprClient.GetState(context.Background(), iothubPrivateStatesStoreName, key)
 	if err != nil {
 		log.Errorf("Failed to get state: %v", err)
 		return nil, err
@@ -621,8 +670,8 @@ func (s *HookService) GetState(username, suffixKey string) ([]byte, error) {
 }
 
 // save state store
-func (s *HookService) SaveState(username, suffixKey string, data []byte) error {
-	if err := s.daprClient.SaveState(context.Background(), iothubPrivateStatesStoreName, username+suffixKey, data); err != nil {
+func (s *HookService) SaveState(key string, data []byte) error {
+	if err := s.daprClient.SaveState(context.Background(), iothubPrivateStatesStoreName, key, data); err != nil {
 		log.Errorf("Failed to persist state: %v\n", err)
 		return err
 	}
@@ -630,8 +679,8 @@ func (s *HookService) SaveState(username, suffixKey string, data []byte) error {
 }
 
 // delete state store
-func (s *HookService) DeleteState(username, suffixKey string) error {
-	if err := s.daprClient.DeleteState(context.Background(), iothubPrivateStatesStoreName, username+suffixKey); err != nil {
+func (s *HookService) DeleteState(key string) error {
+	if err := s.daprClient.DeleteState(context.Background(), iothubPrivateStatesStoreName, key); err != nil {
 		log.Errorf("Failed to delete state store: %v", err)
 		return err
 	}
