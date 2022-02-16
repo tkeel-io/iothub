@@ -537,6 +537,55 @@ func (s *HookService) OnMessagePublish(ctx context.Context, in *pb.MessagePublis
 			"mark":   MarkUpStream,
 		},
 	}
+	//if topic == (username + "/" + AttributesTopic) || topic == (username + "/" + AttributesGatewayTopic) {
+	//	data["data"] = map[string]interface{}{
+	//		attributeProperty: map[string]interface{}{
+	//			"id": username,
+	//			"ts":   GetTime(),
+	//			"values": payload,
+	//			"path": topic,
+	//			"type": attributeProperty,
+	//			"mark": MarkUpStream,
+	//		},
+	//	}
+	//
+	//} else if topic == (username + "/" + TelemetryTopic) || topic == (username + "/" + TelemetryGatewayTopic) {
+	//	data["data"] = map[string]interface{}{
+	//		telemetryProperty: map[string]interface{}{
+	//			"id": username,
+	//			"ts":   GetTime(),
+	//			"values": payload,
+	//			"path": topic,
+	//			"type": telemetryProperty,
+	//			"mark": MarkUpStream,
+	//		},
+	//	}
+	//} else if strings.HasPrefix(topic, username+"/"+AttributesTopicRequest) {
+	//	id := strings.Split(topic, username+"/"+AttributesTopicRequest)[0]
+	//	log.Infof("get attribute id %s", id)
+	//	// 边缘端获取平台属性值
+	//	// todo 获取 payload keys, 向 core 查询 属性值， 返回给边端
+	//} else if strings.HasPrefix(topic, username+"/"+AttributesTopicResponse) {
+	//	id := strings.Split(topic, username+"/"+AttributesTopicResponse)[0]
+	//	log.Infof("cmd response id %s", id)
+	//	// 边缘端命令 response
+	//	// todo 返回一般的 cmd ack 给到 tkeel-device or other application
+	//} else if strings.HasPrefix(topic, username+"/"){
+	//	// 有效的非平台预定义的 topic 表示向平台发送原始数据
+	//	data["data"] = map[string]interface{}{
+	//		rawDataProperty: map[string]interface{}{
+	//			"id": username,
+	//			"ts":    GetTime(),
+	//			"values": payload,
+	//			"path": topic,
+	//			"type": rawDataProperty,
+	//			"mark": MarkUpStream,
+	//		},
+	//	}
+	//} else {
+	//	log.Warnf("invalid topic %s", topic)
+	//	return res, errors.New("invalid topic")
+	//}
 	log.Debug(data)
 	if err := s.daprClient.PublishEvent(context.Background(), "iothub-pubsub", "core-pub", data); err != nil {
 		log.Error(err)

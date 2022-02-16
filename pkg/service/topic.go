@@ -126,3 +126,15 @@ func GetSubscriptionAckTopic(subscriptionTopic string) string{
 
 	return subscriptionAckTopic
 }
+
+func convertBase64ToMap(base64String string) map[string]interface{} {
+	var mapData map[string]interface{}
+
+	sDec, _ := base64.StdEncoding.DecodeString(base64String)
+
+	if err := json.Unmarshal(sDec, &mapData); nil != err {
+		log.Errorf("unmarshal err %s", err)
+		return nil
+	}
+	return mapData
+}
