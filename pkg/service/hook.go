@@ -516,9 +516,10 @@ func (s *HookService) OnMessagePublish(ctx context.Context, in *pb.MessagePublis
     data["type"] = "device"
     data["source"] = "iothub"
     topic := in.GetMessage().Topic
-    payload := DecodeData(in.GetMessage().GetPayload())
+    payloadBytes := in.GetMessage().GetPayload()
+    payload := DecodeData(payloadBytes)
     data["ts"] = GetTime()
-    data["values"] = payload
+    data["values"] = payloadBytes
     data["path"] = topic
     /*
     	{
