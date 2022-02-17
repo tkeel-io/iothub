@@ -2,17 +2,19 @@
 
 import random
 import time
+import json
 
 from paho.mqtt import client as mqtt_client
 
 
-broker = '192.168.100.5'
-port = 32633
+broker = '192.168.123.9'
+port = 31136
 topic = "v1/devices/me/attributes"
 # generate client ID with pub prefix randomly
 client_id = f'python-mqtt-{random.randint(0, 1000)}'
-username = '71e7ce32-dc94-4c44-af95-e16002388993'
-password = "NDGXZJI1NTUTMTNMMS0ZZMM0LWIWMTUTZDG1MDI3NGNKN2MY"
+username = '1cb1750c-2b95-4f0b-9a38-43cfb6b13418'
+password = "NDgzMDY5MGItNjMyMy0zN2ZlLWIwZmUtMjEzNzFmNWFkZjY0"
+
 
 def connect_mqtt():
     def on_connect(client, userdata, flags, rc):
@@ -31,9 +33,13 @@ def connect_mqtt():
 def publish(client):
     msg_count = 0
     while True:
-        time.sleep(1)
-        msg = f"messages: {msg_count}"
-        result = client.publish(topic, msg)
+        time.sleep(10)
+        # msg = f"messages: {msg_count}"
+        msg = {
+            "attribute1": "value1",
+            "attribute2": msg_count
+        }
+        result = client.publish(topic, json.dumps(msg))
         # result: [0, 1]
         status = result[0]
         if status == 0:
