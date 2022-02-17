@@ -2,11 +2,11 @@ package service
 
 import (
 	"bytes"
+	json "encoding/json"
 	"errors"
 	"github.com/tkeel-io/kit/log"
 	"io/ioutil"
 	"net/http"
-	json "encoding/json"
 )
 
 // emq deployed address
