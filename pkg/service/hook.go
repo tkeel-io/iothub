@@ -5,15 +5,15 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"github.com/Shopify/sarama"
 	"io/ioutil"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/Shopify/sarama"
+	cloudevents "github.com/cloudevents/sdk-go/v2"
 	dapr "github.com/dapr/go-sdk/client"
-
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
 	v1 "github.com/tkeel-io/core/api/core/v1"
@@ -69,7 +69,7 @@ func NewHookService(client dapr.Client) *HookService {
 	config := sarama.NewConfig()
 	config.Producer.Return.Successes = true
 	config.Producer.Return.Errors = true
-	address := []string{"localhost:9092"}
+	address := []string{"kafka.keel-system.svc.cluster.local:9092"}
 	p, err := sarama.NewAsyncProducer(address, config)
 	// TODO: error
 	if err != nil {
@@ -426,6 +426,19 @@ func getUserNameFromTopic(topic string) (user string) {
 	return items[0]
 }
 
+type Event struct {
+	cloudevents.Event
+}
+
+func toCloudEvent(data interface{}) *Event {
+	e := Event{}
+	e.SetID(uuid.New().String())
+	e.SetType("tkeel.iothub.MessagePublishRequest")
+	e.SetSource("iothub/MessagePublishRequest")
+	_ = e.SetData(cloudevents.ApplicationJSON, data)
+	return &e
+}
+
 func (s *HookService) OnMessagePublish(ctx context.Context, in *pb.MessagePublishRequest) (*pb.ValuedResponse, error) {
 	res := &pb.ValuedResponse{}
 	res.Type = pb.ValuedResponse_STOP_AND_RETURN
@@ -446,119 +459,94 @@ func (s *HookService) OnMessagePublish(ctx context.Context, in *pb.MessagePublis
 	data := make(map[string]interface{})
 	data["id"] = username
 	data["owner"] = string(owner)
-	data["type"] = "device"
 	data["source"] = "iothub"
+	data["type"] = "device"
 	topic := in.GetMessage().Topic
 	payload := DecodeData(in.GetMessage().GetPayload())
-	//var propertyType string
-	//switch topic {
-	//case username + "/" + AttributesTopic:
-	//    fallthrough
-	//case username + "/" + AttributesGatewayTopic:
-	//    // 变短上传属性
-	//    propertyType = attributeProperty
-	//
-	//case username + "/" + TelemetryTopic:
-	//    fallthrough
-	//case username + "/" + TelemetryGatewayTopic:
-	//    // 边端上传遥测
-	//    propertyType = telemetryProperty
-	//
-	//case username + "/" + AttributesTopicRequest:
-	//    // 边缘端获取平台属性值
-	//    log.Infof("receive attribute requests payload %v", payload)
-	//    // todo 获取 payload keys, 向 core 查询 属性值， 返回给边端
-	//    return res, nil
-	//
-	//case username + "/" + CommandTopicResponse:
-	//    // 边缘端命令 response
-	//    log.Infof("receive command response payload %v", payload)
-	//    // todo 返回一般的 cmd ack 给到 tkeel-device or other application
-	//    return res, nil
-	//
-	//default:
-	//    propertyType = rawDataProperty
-	//}
+
+	var propertyType string
+	switch topic {
+	case username + "/" + AttributesTopic:
+		fallthrough
+	case username + "/" + AttributesGatewayTopic:
+		// 变短上传属性
+		propertyType = attributeProperty
+
+	case username + "/" + TelemetryTopic:
+		fallthrough
+	case username + "/" + TelemetryGatewayTopic:
+		// 边端上传遥测
+		propertyType = telemetryProperty
+
+	case username + "/" + AttributesTopicRequest:
+		// 边缘端获取平台属性值
+		log.Infof("receive attribute requests payload %v", payload)
+		// todo 获取 payload keys, 向 core 查询 属性值， 返回给边端
+		return res, nil
+
+	case username + "/" + CommandTopicResponse:
+		// 边缘端命令 response
+		log.Infof("receive command response payload %v", payload)
+		// todo 返回一般的 cmd ack 给到 tkeel-device or other application
+		return res, nil
+
+	default:
+		propertyType = rawDataProperty
+	}
+
+	// raw data
+	data["data"] = map[string]interface{}{
+		rawDataProperty: map[string]interface{}{
+			"id":     username,
+			"ts":     GetTime(),
+			"values": payload,
+			"path":   topic,
+			"type":   propertyType,
+			"mark":   MarkUpStream,
+		},
+	}
 	/*
-		{
-		   "id": "device_123",
-		   "ts": 1641349927430079500,
-		   "path": "device_123/v1/devices/me/telemetry"
-		   "values": {
-		        "telemetry1": "value1",
-		        "telemetry2": "value2"
-		   },
-		   "type": "telemetry",
-		   "mark": "upstream"
-		}
+	   {
+	       "id":"1cb1750c-2b95-4f0b-9a38-43cfb6b13418",
+	       "source":"iothub",
+	       "type":"device",
+	       "owner":"usr-33737945c2b718db4c309d633d2f",
+	       "data":{
+	           "rawData":{
+	               "id":"1cb1750c-2b95-4f0b-9a38-43cfb6b13418",
+	               "path":"1cb1750c-2b95-4f0b-9a38-43cfb6b13418/v1/devices/me/attributes",
+	               "ts":1644922576881005658,
+	               "type":"telemetry",
+	               "values":{
+	                   "attribteu1":"value1",
+	                   "attribute2":33
+	               },
+	               "mark":"connecting"
+	           }
+	       }
+	   }
 	*/
-	data["ts"] = GetTime()
-	data["values"] = payload
-	data["path"] = topic
-	data["type"] = "telemetry"
-	//if topic == (username + "/" + AttributesTopic) || topic == (username + "/" + AttributesGatewayTopic) {
-	//	data["data"] = map[string]interface{}{
-	//		attributeProperty: map[string]interface{}{
-	//			"id": username,
-	//			"ts":   GetTime(),
-	//			"values": payload,
-	//			"path": topic,
-	//			"type": attributeProperty,
-	//			"mark": MarkUpStream,
-	//		},
-	//	}
-	//
-	//} else if topic == (username + "/" + TelemetryTopic) || topic == (username + "/" + TelemetryGatewayTopic) {
-	//	data["data"] = map[string]interface{}{
-	//		telemetryProperty: map[string]interface{}{
-	//			"id": username,
-	//			"ts":   GetTime(),
-	//			"values": payload,
-	//			"path": topic,
-	//			"type": telemetryProperty,
-	//			"mark": MarkUpStream,
-	//		},
-	//	}
-	//} else if strings.HasPrefix(topic, username+"/"+AttributesTopicRequest) {
-	//	id := strings.Split(topic, username+"/"+AttributesTopicRequest)[0]
-	//	log.Infof("get attribute id %s", id)
-	//	// 边缘端获取平台属性值
-	//	// todo 获取 payload keys, 向 core 查询 属性值， 返回给边端
-	//} else if strings.HasPrefix(topic, username+"/"+AttributesTopicResponse) {
-	//	id := strings.Split(topic, username+"/"+AttributesTopicResponse)[0]
-	//	log.Infof("cmd response id %s", id)
-	//	// 边缘端命令 response
-	//	// todo 返回一般的 cmd ack 给到 tkeel-device or other application
-	//} else if strings.HasPrefix(topic, username+"/"){
-	//	// 有效的非平台预定义的 topic 表示向平台发送原始数据
-	//	data["data"] = map[string]interface{}{
-	//		rawDataProperty: map[string]interface{}{
-	//			"id": username,
-	//			"ts":    GetTime(),
-	//			"values": payload,
-	//			"path": topic,
-	//			"type": rawDataProperty,
-	//			"mark": MarkUpStream,
-	//		},
-	//	}
-	//} else {
-	//	log.Warnf("invalid topic %s", topic)
-	//	return res, errors.New("invalid topic")
+
+	//ev := toCloudEvent(data)
+	//if err := ev.Validate();err != nil {
+	//   res.Value = &pb.ValuedResponse_BoolResult{BoolResult: true}
+	//   return res, err
 	//}
-	//log.Debug(data)
 	v, err := json.Marshal(data)
 	if err != nil {
 		res.Value = &pb.ValuedResponse_BoolResult{BoolResult: true}
+		return res, err
 	}
+	log.Info("iothub-->core", string(v))
 	//
 	s.producer.Input() <- &sarama.ProducerMessage{
 		Topic: "core-pub",
 		Value: sarama.ByteEncoder(v),
 	}
-	//if err := s.daprClient.PublishEvent(context.Background(), "iothub-pubsub", "core-pub", data); err != nil {
-	//    log.Error(err)
-	//    return res, nil
-	//}
+	if err := s.daprClient.PublishEvent(context.Background(), "iothub-pubsub", "core-pub", data); err != nil {
+		log.Error(err)
+		return res, nil
+	}
 	res.Value = &pb.ValuedResponse_BoolResult{BoolResult: true}
 	return res, nil
 }
