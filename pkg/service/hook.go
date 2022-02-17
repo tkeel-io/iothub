@@ -139,10 +139,10 @@ func (s *HookService) OnClientConnack(ctx context.Context, in *pb.ClientConnackR
 
 func (s *HookService) OnClientConnected(ctx context.Context, in *pb.ClientConnectedRequest) (*pb.EmptySuccess, error) {
     log.Debugf("clientInfo %v", in.GetClientinfo())
-    username := in.Clientinfo.Username
+    username := GetUsername(in.Clientinfo)
     ci := &ConnectInfo{
         ClientID:   in.Clientinfo.Clientid,
-        UserName:   in.Clientinfo.Username,
+        UserName:   username,
         PeerHost:   in.Clientinfo.Peerhost,
         Protocol:   in.Clientinfo.Protocol,
         SocketPort: strconv.Itoa(int(in.Clientinfo.Sockport)),
@@ -191,7 +191,7 @@ func (s *HookService) OnClientConnected(ctx context.Context, in *pb.ClientConnec
 }
 
 func (s *HookService) OnClientDisconnected(ctx context.Context, in *pb.ClientDisconnectedRequest) (*pb.EmptySuccess, error) {
-    username := in.Clientinfo.Username
+    username := GetUsername(in.Clientinfo)
     ci := &ConnectInfo{
         ClientID:   "",
         UserName:   "",
@@ -331,18 +331,23 @@ func (s *HookService) auth(password, username string) bool {
     return true
 }
 
+func GetUsername(Clientinfo *pb.ClientInfo) string{
+    // coap 协议 用户名最大支持5个字符
+    protocol := Clientinfo.GetProtocol()
+    var username string
+    if protocol == "coap"{
+        username = Clientinfo.GetClientid()
+    }else{
+        username = Clientinfo.GetUsername()
+    }
+    return username
+}
+
 func (s *HookService) OnClientAuthenticate(ctx context.Context, in *pb.ClientAuthenticateRequest) (*pb.ValuedResponse, error) {
 	res := &pb.ValuedResponse{}
 	res.Type = pb.ValuedResponse_STOP_AND_RETURN
 	log.Debug(in.GetClientinfo())
-	// coap 协议 用户名最大支持5个字符
-	protocol := in.Clientinfo.GetProtocol()
-	var username string
-	if protocol == "coap"{
-		username = in.Clientinfo.GetClientid()
-	}else{
-		username = in.Clientinfo.GetUsername()
-	}
+    username := GetUsername(in.Clientinfo)
 	authRes := s.auth(in.Clientinfo.GetPassword(), username)
 	res.Value = &pb.ValuedResponse_BoolResult{BoolResult: authRes}
 	return res, nil
@@ -609,6 +614,7 @@ func (s *HookService) OnMessagePublish(ctx context.Context, in *pb.MessagePublis
         res.Value = &pb.ValuedResponse_BoolResult{BoolResult: true}
     }
     //
+    log.Infof("iothub->core %s", string(v))
     s.producer.Input() <- &sarama.ProducerMessage{
         Topic: "core-pub",
         Value: sarama.ByteEncoder(v),
