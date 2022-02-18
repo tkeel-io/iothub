@@ -148,12 +148,16 @@ func (s *HookService) OnClientConnected(ctx context.Context, in *pb.ClientConnec
         SocketPort: strconv.Itoa(int(in.Clientinfo.Sockport)),
         Online:     true,
     }
+    v, err := EncodeData(*ci)
+    if err != nil {
+        return nil, err
+    }
     infoMap := map[string]interface{}{
         //connectInfoProperty: *ci,
         rawDataProperty: map[string]interface{}{
             "id":     username,
             "ts":     GetTime(),
-            "values": *ci,
+            "values": v,
             "path":   "",
             "type":   connectInfoProperty,
             "mark":   MarkConnecting,
@@ -172,7 +176,7 @@ func (s *HookService) OnClientConnected(ctx context.Context, in *pb.ClientConnec
         "source": "iothub",
         "data":   infoMap,
     }
-    log.Debugf("pub data %s", data)
+    log.Debugf("iothub->core %s", data)
     if err := s.daprClient.PublishEvent(context.Background(), "iothub-pubsub", "core-pub", data); err != nil {
         log.Error(err)
         return nil, err
@@ -200,12 +204,16 @@ func (s *HookService) OnClientDisconnected(ctx context.Context, in *pb.ClientDis
         SocketPort: "",
         Online:     false,
     }
+    v, err := EncodeData(*ci)
+    if err != nil {
+        return nil, err
+    }
     infoMap := map[string]interface{}{
         //connectInfoProperty: *ci,
         rawDataProperty: map[string]interface{}{
             "id":     username,
             "ts":     GetTime(),
-            "values": *ci,
+            "values": v,
             "path":   "",
             "type":   connectInfoProperty,
             "mark":   MarkConnecting,
@@ -223,7 +231,7 @@ func (s *HookService) OnClientDisconnected(ctx context.Context, in *pb.ClientDis
         "source": "iothub",
         "data":   infoMap,
     }
-    log.Debugf("pub data %s", data)
+    log.Debugf("iothub->core %s", data)
     if err := s.daprClient.PublishEvent(context.Background(), "iothub-pubsub", "core-pub", data); err != nil {
         log.Error(err)
         return nil, err
@@ -468,13 +476,22 @@ func GetUUID() string {
 }
 
 //get decode data
-func DecodeData(rawData []byte) interface{} {
+func DecodeData(rawData []byte) (interface{}, error) {
     var data interface{}
     err := json.Unmarshal(rawData, &data)
     if nil != err {
-        return ""
+        return "", err
     }
-    return data
+    return data, nil
+}
+
+// encode data
+func EncodeData(jsonData interface{}) ([]byte, error) {
+    byteData, err := json.Marshal(jsonData)
+    if nil != err {
+        return nil, err
+    }
+    return byteData, nil
 }
 
 func getUserNameFromTopic(topic string) (user string) {
@@ -522,7 +539,6 @@ func (s *HookService) OnMessagePublish(ctx context.Context, in *pb.MessagePublis
     data["source"] = "iothub"
     topic := in.GetMessage().Topic
     payloadBytes := in.GetMessage().GetPayload()
-    payload := DecodeData(payloadBytes)
     /*
     	{
     	   "id": "device_123",
@@ -540,9 +556,9 @@ func (s *HookService) OnMessagePublish(ctx context.Context, in *pb.MessagePublis
     // 获取平台属性值
     if strings.HasPrefix(topic, username+"/"+AttributesTopicRequest) {
         // 一般设备
-        log.Infof("receive attribute requests payload %v", payload)
+        log.Infof("receive attribute requests payload %s", string(payloadBytes))
         // todo 获取 payload keys, 向 core 查询 属性值， 返回给边端
-        mapData := payload.(map[string]interface{})
+        mapData := make(map[string]interface{})
         // {"clientKeys":"attribute1,attribute2", "sharedKeys":"shared1,shared2"} // tb payload
         // {“keys”: "attribute1,attribute2"}
 
@@ -556,7 +572,7 @@ func (s *HookService) OnMessagePublish(ctx context.Context, in *pb.MessagePublis
         return res, nil
     } else if topic == AttributesGatewayTopicRequest {
         // 网关设备
-        mapData := payload.(map[string]interface{})
+        mapData := make(map[string]interface{})
         //device := mapData["device"].(string)
         //attributeKey := mapData["key"].(string)
         ////todo: 向 core 查询 属性值， 返回给边端
@@ -588,7 +604,7 @@ func (s *HookService) OnMessagePublish(ctx context.Context, in *pb.MessagePublis
 
     case username + "/" + CommandTopicResponse:
         // 边缘端命令 response
-        log.Infof("receive command response payload %v", payload)
+        log.Infof("receive command response payload %s", string(payloadBytes))
         // todo 返回一般的 cmd ack 给到 tkeel-device or other application
         res.Value = &pb.ValuedResponse_BoolResult{BoolResult: true}
         return res, nil
@@ -606,9 +622,9 @@ func (s *HookService) OnMessagePublish(ctx context.Context, in *pb.MessagePublis
             "mark":   MarkUpStream,
         },
     }
-    v, err := json.Marshal(data)
+	v, err := json.Marshal(data)
     if err != nil {
-        res.Value = &pb.ValuedResponse_BoolResult{BoolResult: true}
+		return res, err
     }
     //
     log.Infof("iothub->core %s", string(v))
@@ -617,8 +633,8 @@ func (s *HookService) OnMessagePublish(ctx context.Context, in *pb.MessagePublis
         Value: sarama.ByteEncoder(v),
     }
     if err := s.daprClient.PublishEvent(context.Background(), "iothub-pubsub", "core-pub", data); err != nil {
-        log.Error(err)
-        return res, nil
+       log.Error(err)
+       return res, nil
     }
     res.Value = &pb.ValuedResponse_BoolResult{BoolResult: true}
     return res, nil
