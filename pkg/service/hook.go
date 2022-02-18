@@ -139,10 +139,10 @@ func (s *HookService) OnClientConnack(ctx context.Context, in *pb.ClientConnackR
 
 func (s *HookService) OnClientConnected(ctx context.Context, in *pb.ClientConnectedRequest) (*pb.EmptySuccess, error) {
     log.Debugf("clientInfo %v", in.GetClientinfo())
-    username := in.Clientinfo.Username
+    username := GetUsername(in.Clientinfo)
     ci := &ConnectInfo{
         ClientID:   in.Clientinfo.Clientid,
-        UserName:   in.Clientinfo.Username,
+        UserName:   username,
         PeerHost:   in.Clientinfo.Peerhost,
         Protocol:   in.Clientinfo.Protocol,
         SocketPort: strconv.Itoa(int(in.Clientinfo.Sockport)),
@@ -191,7 +191,7 @@ func (s *HookService) OnClientConnected(ctx context.Context, in *pb.ClientConnec
 }
 
 func (s *HookService) OnClientDisconnected(ctx context.Context, in *pb.ClientDisconnectedRequest) (*pb.EmptySuccess, error) {
-    username := in.Clientinfo.Username
+    username := GetUsername(in.Clientinfo)
     ci := &ConnectInfo{
         ClientID:   "",
         UserName:   "",
@@ -331,13 +331,26 @@ func (s *HookService) auth(password, username string) bool {
     return true
 }
 
+func GetUsername(Clientinfo *pb.ClientInfo) string{
+    // coap 协议 用户名最大支持5个字符
+    protocol := Clientinfo.GetProtocol()
+    var username string
+    if protocol == "coap"{
+        username = Clientinfo.GetClientid()
+    }else{
+        username = Clientinfo.GetUsername()
+    }
+    return username
+}
+
 func (s *HookService) OnClientAuthenticate(ctx context.Context, in *pb.ClientAuthenticateRequest) (*pb.ValuedResponse, error) {
-    res := &pb.ValuedResponse{}
-    res.Type = pb.ValuedResponse_STOP_AND_RETURN
-    log.Debug(in.GetClientinfo())
-    authRes := s.auth(in.Clientinfo.GetPassword(), in.Clientinfo.GetUsername())
-    res.Value = &pb.ValuedResponse_BoolResult{BoolResult: authRes}
-    return res, nil
+	res := &pb.ValuedResponse{}
+	res.Type = pb.ValuedResponse_STOP_AND_RETURN
+	log.Debug(in.GetClientinfo())
+    username := GetUsername(in.Clientinfo)
+	authRes := s.auth(in.Clientinfo.GetPassword(), username)
+	res.Value = &pb.ValuedResponse_BoolResult{BoolResult: authRes}
+	return res, nil
 }
 
 func (s *HookService) OnClientCheckAcl(ctx context.Context, in *pb.ClientCheckAclRequest) (*pb.ValuedResponse, error) { //nolint
@@ -345,40 +358,40 @@ func (s *HookService) OnClientCheckAcl(ctx context.Context, in *pb.ClientCheckAc
 }
 
 func (s *HookService) OnClientSubscribe(ctx context.Context, in *pb.ClientSubscribeRequest) (*pb.EmptySuccess, error) {
-    topics := in.GetTopicFilters()
-    username := in.Clientinfo.GetUsername()
-    for _, tf := range topics {
-        topic := tf.GetName()
-        //get owner
-        value, err := s.GetState(username + devEntitySuffixKey)
-        if err != nil {
-            return nil, err
-        }
-        owner := string(value)
+	topics := in.GetTopicFilters()
+	username := in.Clientinfo.GetUsername()
+	for _, tf := range topics {
+		topic := tf.GetName()
+		//get owner
+		value, err := s.GetState(username + devEntitySuffixKey)
+		if err != nil {
+			return nil, err
+		}
+		owner := string(value)
 
-        log.Debugf("client subscribe topic: %s, username: %s", topic, username)
-        // 创建 core 订阅实体
-        if topic == AttributesTopic {
-            // 一般设备订阅平台属性变化
-            s.CreateSubscribeEntity(owner, username, attributeProperty, topic, onChangeMode)
-        } else if topic == AttributesGatewayTopic {
-            //网关设备订阅平台属性变化
-            //{"device": "Device A", "data": {"attribute1": "value1", "attribute2": 42}} // tb payload
-            //var devices []string
-            //s.CreateSubscribeEntity(owner, username, attributeProperty, topic, onChangeMode)
-        } else if topic == CommandTopicRequest {
-            //订阅平台命令
-            s.CreateSubscribeEntity(owner, username, commandProperty, topic, realtimeMode)
-        } else if topic == AttributesTopicResponse || topic == AttributesGatewayTopicResponse {
-            //边端获取平台属性值
-            //do nothing
-            log.Debugf("client subscribe topic %s", topic)
-        } else {
-            return nil, errors.New("invalid topic")
-        }
+		log.Debugf("client subscribe topic: %s, username: %s", topic, username)
+		// 创建 core 订阅实体
+		if topic == AttributesTopic {
+			// 一般设备订阅平台属性变化
+			s.CreateSubscribeEntity(owner, username, attributeProperty, topic, onChangeMode)
+		} else if topic == AttributesGatewayTopic {
+			//网关设备订阅平台属性变化
+			// todo: 参照直连设备到非直连设备的语法， 也可以直接查询直连设备的 mapper
+			devId := ""
+			s.CreateSubscribeEntity(owner, devId, attributeProperty, topic, onChangeMode)
+		} else if topic == CommandTopicRequest {
+			//订阅平台命令
+			s.CreateSubscribeEntity(owner, username, commandProperty, topic, realtimeMode)
+		} else if topic == AttributesTopicResponse || topic ==  AttributesGatewayTopicResponse {
+			//边端获取平台属性值
+			//do nothing
+			log.Debugf("client subscribe topic %s", topic)
+		} else {
+			return nil, errors.New("invalid topic")
+		}
 
-    }
-    return &pb.EmptySuccess{}, nil
+	}
+	return &pb.EmptySuccess{}, nil
 }
 
 func (s *HookService) OnClientUnsubscribe(ctx context.Context, in *pb.ClientUnsubscribeRequest) (*pb.EmptySuccess, error) {
@@ -510,9 +523,6 @@ func (s *HookService) OnMessagePublish(ctx context.Context, in *pb.MessagePublis
     topic := in.GetMessage().Topic
     payloadBytes := in.GetMessage().GetPayload()
     payload := DecodeData(payloadBytes)
-    data["ts"] = GetTime()
-    data["values"] = payloadBytes
-    data["path"] = topic
     /*
     	{
     	   "id": "device_123",
@@ -590,7 +600,7 @@ func (s *HookService) OnMessagePublish(ctx context.Context, in *pb.MessagePublis
         rawDataProperty: map[string]interface{}{
             "id":     username,
             "ts":     GetTime(),
-            "values": payload,
+            "values": payloadBytes,
             "path":   topic,
             "type":   propertyType,
             "mark":   MarkUpStream,
@@ -601,6 +611,7 @@ func (s *HookService) OnMessagePublish(ctx context.Context, in *pb.MessagePublis
         res.Value = &pb.ValuedResponse_BoolResult{BoolResult: true}
     }
     //
+    log.Infof("iothub->core %s", string(v))
     s.producer.Input() <- &sarama.ProducerMessage{
         Topic: "core-pub",
         Value: sarama.ByteEncoder(v),
