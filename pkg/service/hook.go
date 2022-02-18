@@ -523,9 +523,6 @@ func (s *HookService) OnMessagePublish(ctx context.Context, in *pb.MessagePublis
     topic := in.GetMessage().Topic
     payloadBytes := in.GetMessage().GetPayload()
     payload := DecodeData(payloadBytes)
-    data["ts"] = GetTime()
-    data["values"] = payloadBytes
-    data["path"] = topic
     /*
     	{
     	   "id": "device_123",
@@ -603,7 +600,7 @@ func (s *HookService) OnMessagePublish(ctx context.Context, in *pb.MessagePublis
         rawDataProperty: map[string]interface{}{
             "id":     username,
             "ts":     GetTime(),
-            "values": payload,
+            "values": payloadBytes,
             "path":   topic,
             "type":   propertyType,
             "mark":   MarkUpStream,
