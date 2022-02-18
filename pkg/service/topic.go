@@ -38,20 +38,20 @@ func NewTopicService(ctx context.Context, hookSvc *HookService) (*TopicService, 
 func (s *TopicService) TopicEventHandler(ctx context.Context, req *pb.TopicEventRequest) (out *pb.TopicEventResponse, err error) {
     log.Debugf("receive pubsub topic: %s, payload: %v", req.GetTopic(), req.GetData())
     // get subId
-    reqData := req.Data.GetStructValue().AsMap()
-    subId := reqData["id"].(string)
-    devId := reqData["devId"].(string)
-    subTopic, err := s.hookSvc.GetState(subId)
-    if nil != err {
-        return &pb.TopicEventResponse{Status: SubscriptionResponseStatusDrop}, err
-    }
-    var payload interface{}
-
-    ackTopic := GetSubscriptionAckTopic(string(subTopic))
-    // publish(post) data to emq
-    if err := Publish(devId, ackTopic, defaultDownStreamClientId, 0, false, payload); nil != err {
-        return &pb.TopicEventResponse{Status: SubscriptionResponseStatusDrop}, err
-    }
+    //reqData := req.Data.GetStructValue().AsMap()
+    //subId := reqData["id"].(string)
+    //devId := reqData["devId"].(string)
+    //subTopic, err := s.hookSvc.GetState(subId)
+    //if nil != err {
+    //    return &pb.TopicEventResponse{Status: SubscriptionResponseStatusDrop}, err
+    //}
+    //payload := make(map[string]interface{})
+    //
+    //ackTopic := GetSubscriptionAckTopic(string(subTopic))
+    //// publish(post) data to emq
+    //if err := Publish(devId, ackTopic, defaultDownStreamClientId, 0, false, payload); nil != err {
+    //    return &pb.TopicEventResponse{Status: SubscriptionResponseStatusDrop}, err
+    //}
     return &pb.TopicEventResponse{Status: SubscriptionResponseStatusSuccess}, nil
 
     //var payload interface{}
