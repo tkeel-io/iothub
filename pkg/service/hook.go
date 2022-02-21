@@ -637,6 +637,7 @@ func (s *HookService) OnMessagePublish(ctx context.Context, in *pb.MessagePublis
 	s.producer.Input() <- &sarama.ProducerMessage{
 		Topic: "core-pub",
 		Value: sarama.ByteEncoder(dd),
+		Key:   sarama.StringEncoder(username),
 	}
 	if err := s.daprClient.PublishEvent(context.Background(), "iothub-pubsub", "core-pub", data); err != nil {
 		log.Error(err)
