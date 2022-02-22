@@ -8,6 +8,7 @@ import (
 	jsoniter "github.com/json-iterator/go"
 	"io/ioutil"
 	"net/http"
+	"os"
 	"reflect"
 	"strconv"
 	"strings"
@@ -69,6 +70,8 @@ type HookService struct {
 	// map["clientid"][{"topic": "xxx/xxx", "qos": 0, "node": "XXX"},]
 	subscribeTopics map[string][]map[string]interface{}
 	producer        sarama.AsyncProducer
+	// the topic pub to core
+	corePubTopic string
 }
 
 func NewHookService(client dapr.Client) *HookService {
@@ -96,7 +99,16 @@ func NewHookService(client dapr.Client) *HookService {
 		}
 	}(p)
 	//
-	return &HookService{daprClient: client, producer: p}
+	tp := `core-pub`
+	if s := os.Getenv("CORE_PUB_TOPIC"); s != "" {
+		tp = s
+	}
+	//
+	return &HookService{
+		daprClient:   client,
+		producer:     p,
+		corePubTopic: tp,
+	}
 }
 
 // HookProviderServer callbacks
@@ -178,7 +190,7 @@ func (s *HookService) OnClientConnected(ctx context.Context, in *pb.ClientConnec
 		"data":   infoMap,
 	}
 	log.Debugf("iothub->core %s", data)
-	if err := s.daprClient.PublishEvent(context.Background(), "iothub-pubsub", "core-pub", data); err != nil {
+	if err := s.daprClient.PublishEvent(context.Background(), "iothub-pubsub", s.corePubTopic, data); err != nil {
 		log.Error(err)
 		return nil, err
 	}
@@ -233,7 +245,7 @@ func (s *HookService) OnClientDisconnected(ctx context.Context, in *pb.ClientDis
 		"data":   infoMap,
 	}
 	log.Debugf("iothub->core %s", data)
-	if err := s.daprClient.PublishEvent(context.Background(), "iothub-pubsub", "core-pub", data); err != nil {
+	if err := s.daprClient.PublishEvent(context.Background(), "iothub-pubsub", s.corePubTopic, data); err != nil {
 		log.Error(err)
 		return nil, err
 	}
@@ -635,14 +647,14 @@ func (s *HookService) OnMessagePublish(ctx context.Context, in *pb.MessagePublis
 		return res, err
 	}
 	s.producer.Input() <- &sarama.ProducerMessage{
-		Topic: "core-pub",
+		Topic: s.corePubTopic,
 		Value: sarama.ByteEncoder(dd),
 		Key:   sarama.StringEncoder(username),
 	}
-	if err := s.daprClient.PublishEvent(context.Background(), "iothub-pubsub", "core-pub", data); err != nil {
-		log.Error(err)
-		return res, nil
-	}
+	//if err := s.daprClient.PublishEvent(context.Background(), "iothub-pubsub", s.corePubTopic, data); err != nil {
+	//	log.Error(err)
+	//	return res, nil
+	//}
 	res.Value = &pb.ValuedResponse_BoolResult{BoolResult: true}
 	return res, nil
 }
