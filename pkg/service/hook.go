@@ -78,8 +78,8 @@ func NewHookService(client dapr.Client) *HookService {
     config := sarama.NewConfig()
     config.Producer.Return.Successes = true
     config.Producer.Return.Errors = true
-    //address := []string{"kafka.keel-system.svc.cluster.local:9092"}
-    address := []string{"tkeel-middleware-kafka-headless:9092"}
+    address := []string{"kafka.keel-system.svc.cluster.local:9092"}
+    //address := []string{"tkeel-middleware-kafka-headless:9092"}
 
     p, err := sarama.NewAsyncProducer(address, config)
     // TODO: error
