@@ -7,6 +7,7 @@ import (
     "fmt"
     "io/ioutil"
     "net/http"
+    "os"
     "reflect"
     "strconv"
     "strings"
@@ -16,6 +17,7 @@ import (
     cloudevents "github.com/cloudevents/sdk-go/v2"
     dapr "github.com/dapr/go-sdk/client"
     "github.com/google/uuid"
+    jsoniter "github.com/json-iterator/go"
     "github.com/pkg/errors"
     v1 "github.com/tkeel-io/core/api/core/v1"
     pb "github.com/tkeel-io/iothub/protobuf"
@@ -68,13 +70,17 @@ type HookService struct {
     // map["clientid"][{"topic": "xxx/xxx", "qos": 0, "node": "XXX"},]
     subscribeTopics map[string][]map[string]interface{}
     producer        sarama.AsyncProducer
+    // the topic pub to core
+    corePubTopic string
 }
 
 func NewHookService(client dapr.Client) *HookService {
     config := sarama.NewConfig()
     config.Producer.Return.Successes = true
     config.Producer.Return.Errors = true
-    address := []string{"kafka.keel-system.svc.cluster.local:9092"}
+    //address := []string{"kafka.keel-system.svc.cluster.local:9092"}
+    address := []string{"tkeel-middleware-kafka-headless:9092"}
+
     p, err := sarama.NewAsyncProducer(address, config)
     // TODO: error
     if err != nil {
@@ -95,7 +101,16 @@ func NewHookService(client dapr.Client) *HookService {
         }
     }(p)
     //
-    return &HookService{daprClient: client, producer: p}
+    tp := `core-pub`
+    if s := os.Getenv("CORE_PUB_TOPIC"); s != "" {
+        tp = s
+    }
+    //
+    return &HookService{
+        daprClient:   client,
+        producer:     p,
+        corePubTopic: tp,
+    }
 }
 
 // HookProviderServer callbacks
@@ -177,7 +192,7 @@ func (s *HookService) OnClientConnected(ctx context.Context, in *pb.ClientConnec
         "data":   infoMap,
     }
     log.Debugf("iothub->core %s", data)
-    if err := s.daprClient.PublishEvent(context.Background(), "iothub-pubsub", "core-pub", data); err != nil {
+    if err := s.daprClient.PublishEvent(context.Background(), "iothub-pubsub", s.corePubTopic, data); err != nil {
         log.Error(err)
         return nil, err
     }
@@ -232,7 +247,7 @@ func (s *HookService) OnClientDisconnected(ctx context.Context, in *pb.ClientDis
         "data":   infoMap,
     }
     log.Debugf("iothub->core %s", data)
-    if err := s.daprClient.PublishEvent(context.Background(), "iothub-pubsub", "core-pub", data); err != nil {
+    if err := s.daprClient.PublishEvent(context.Background(), "iothub-pubsub", s.corePubTopic, data); err != nil {
         log.Error(err)
         return nil, err
     }
@@ -510,13 +525,18 @@ type Event struct {
     cloudevents.Event
 }
 
-func toCloudEvent(data interface{}) *Event {
-    e := Event{}
-    e.SetID(uuid.New().String())
-    e.SetType("tkeel.iothub.MessagePublishRequest")
-    e.SetSource("iothub/MessagePublishRequest")
-    _ = e.SetData(cloudevents.ApplicationJSON, data)
-    return &e
+func toCloudEventData(data interface{}) ([]byte, error) {
+    m := make(map[string]interface{})
+    m["traceid"] = uuid.New().String()
+    m["id"] = uuid.New().String()
+    m["topic"] = "core-pub"
+    m["pubsubname"] = "iothub-pubsub"
+    m["source"] = "iothub"
+    m["type"] = "com.dapr.event.sent"
+    m["specversion"] = "1.0"
+    m["data"] = data
+    //
+    return jsoniter.Marshal(m)
 }
 
 func (s *HookService) OnMessagePublish(ctx context.Context, in *pb.MessagePublishRequest) (*pb.ValuedResponse, error) {
@@ -616,7 +636,7 @@ func (s *HookService) OnMessagePublish(ctx context.Context, in *pb.MessagePublis
     default:
         propertyType = rawDataProperty
     }
-    data["data"] = map[string]interface{}{
+    md := map[string]interface{}{
         rawDataProperty: map[string]interface{}{
             "id":     username,
             "ts":     GetTime(),
@@ -626,20 +646,21 @@ func (s *HookService) OnMessagePublish(ctx context.Context, in *pb.MessagePublis
             "mark":   MarkUpStream,
         },
     }
-    v, err := json.Marshal(data)
+    data["data"] = md
+    dd, err := toCloudEventData(data)
     if err != nil {
+        log.Errorf("toCloudEventData %s", err.Error())
         return res, err
     }
-    //
-    log.Infof("iothub->core %s", string(v))
     s.producer.Input() <- &sarama.ProducerMessage{
-        Topic: "core-pub",
-        Value: sarama.ByteEncoder(v),
+        Topic: s.corePubTopic,
+        Value: sarama.ByteEncoder(dd),
+        Key:   sarama.StringEncoder(username),
     }
-    if err := s.daprClient.PublishEvent(context.Background(), "iothub-pubsub", "core-pub", data); err != nil {
-        log.Error(err)
-        return res, nil
-    }
+    //if err := s.daprClient.PublishEvent(context.Background(), "iothub-pubsub", s.corePubTopic, data); err != nil {
+    //	log.Error(err)
+    //	return res, nil
+    //}
     res.Value = &pb.ValuedResponse_BoolResult{BoolResult: true}
     return res, nil
 }
