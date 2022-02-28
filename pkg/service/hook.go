@@ -298,12 +298,13 @@ type TokenValidRequest struct {
 type TokenValidResponseData struct {
     EntityID   string `json:"entity_id"`
     EntityType string `json:"entity_type"`
-    Exp        int64  `json:"exp"`
+    ExpiredAt  string `json:"expired_at"`
     Owner      string `json:"owner"`
+    CreatedAt  string `json:"created_at"`
 }
 
 type TokenValidResponse struct {
-    Code int32                  `json:"code"`
+    Code string                 `json:"code"`
     Msg  string                 `json:"msg"`
     Data TokenValidResponseData `json:"data"`
 }
@@ -321,6 +322,9 @@ func (s *HookService) parseToken(password string) (*TokenValidResponse, error) {
     resp, err := http.DefaultClient.Do(req)
     if err != nil {
         return nil, err
+    }
+    if resp.StatusCode != 200 {
+        return nil, errors.New("Invalid StatusCode " + resp.Status)
     }
     defer resp.Body.Close()
 
@@ -343,8 +347,8 @@ func (s *HookService) auth(password, username string) bool {
         return false
     }
     log.Debug(tokenResp, username)
-    if (tokenResp.Code != 200) || (tokenResp.Data.EntityID != username) {
-        log.Errorf("auth result code: %v or invalid username %s", tokenResp.Msg, username)
+    if tokenResp.Data.EntityID != username {
+        log.Errorf("invalid username %s", username)
         return false
     }
     //save owner

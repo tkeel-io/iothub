@@ -72,6 +72,9 @@ service:
   ## Port for MQTT
   ##
   mqtt: 1883
+  ## Port for MQTT-SN
+  ##
+  sn: 1884
   ## Port for CoAP
   ##
   coap: 5683
@@ -97,12 +100,13 @@ service:
   ## ref: https://kubernetes.io/docs/concepts/services-networking/service/#type-nodeport
   ##
   nodePorts:
-    mqtt:
+    mqtt: 31883
+    sn: 31884
     coap: 30588
-    mqttssl:
-    mgmt: 30855
-    ws:
-    wss:
+    mqttssl: 38883
+    mgmt: 38081
+    ws: 38083
+    wss: 38084
     dashboard:
     dashboardtls:
   ## Set the LoadBalancer service type to internal only.
