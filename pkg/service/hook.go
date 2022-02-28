@@ -283,7 +283,7 @@ type TokenValidRequest struct {
 type TokenValidResponseData struct {
     EntityID   string `json:"entity_id"`
     EntityType string `json:"entity_type"`
-    ExpiredAt  string  `json:"expired_at"`
+    ExpiredAt  string `json:"expired_at"`
     Owner      string `json:"owner"`
     CreatedAt  string `json:"created_at"`
 }
@@ -308,7 +308,7 @@ func (s *HookService) parseToken(password string) (*TokenValidResponse, error) {
     if err != nil {
         return nil, err
     }
-    if resp.StatusCode != 200{
+    if resp.StatusCode != 200 {
         return nil, errors.New("Invalid StatusCode " + resp.Status)
     }
     defer resp.Body.Close()
@@ -343,26 +343,26 @@ func (s *HookService) auth(password, username string) bool {
     return true
 }
 
-func GetUsername(Clientinfo *pb.ClientInfo) string{
+func GetUsername(Clientinfo *pb.ClientInfo) string {
     // coap 协议 用户名最大支持5个字符
     protocol := Clientinfo.GetProtocol()
     var username string
-    if protocol == "coap"{
+    if protocol == "coap" {
         username = Clientinfo.GetClientid()
-    }else{
+    } else {
         username = Clientinfo.GetUsername()
     }
     return username
 }
 
 func (s *HookService) OnClientAuthenticate(ctx context.Context, in *pb.ClientAuthenticateRequest) (*pb.ValuedResponse, error) {
-	res := &pb.ValuedResponse{}
-	res.Type = pb.ValuedResponse_STOP_AND_RETURN
-	log.Debug(in.GetClientinfo())
+    res := &pb.ValuedResponse{}
+    res.Type = pb.ValuedResponse_STOP_AND_RETURN
+    log.Debug(in.GetClientinfo())
     username := GetUsername(in.Clientinfo)
-	authRes := s.auth(in.Clientinfo.GetPassword(), username)
-	res.Value = &pb.ValuedResponse_BoolResult{BoolResult: authRes}
-	return res, nil
+    authRes := s.auth(in.Clientinfo.GetPassword(), username)
+    res.Value = &pb.ValuedResponse_BoolResult{BoolResult: authRes}
+    return res, nil
 }
 
 func (s *HookService) OnClientCheckAcl(ctx context.Context, in *pb.ClientCheckAclRequest) (*pb.ValuedResponse, error) { //nolint
@@ -370,40 +370,40 @@ func (s *HookService) OnClientCheckAcl(ctx context.Context, in *pb.ClientCheckAc
 }
 
 func (s *HookService) OnClientSubscribe(ctx context.Context, in *pb.ClientSubscribeRequest) (*pb.EmptySuccess, error) {
-	topics := in.GetTopicFilters()
-	username := in.Clientinfo.GetUsername()
-	for _, tf := range topics {
-		topic := tf.GetName()
-		//get owner
-		value, err := s.GetState(username + devEntitySuffixKey)
-		if err != nil {
-			return nil, err
-		}
-		owner := string(value)
+    topics := in.GetTopicFilters()
+    username := in.Clientinfo.GetUsername()
+    for _, tf := range topics {
+        topic := tf.GetName()
+        //get owner
+        value, err := s.GetState(username + devEntitySuffixKey)
+        if err != nil {
+            return nil, err
+        }
+        owner := string(value)
 
-		log.Debugf("client subscribe topic: %s, username: %s", topic, username)
-		// 创建 core 订阅实体
-		if topic == AttributesTopic {
-			// 一般设备订阅平台属性变化
-			s.CreateSubscribeEntity(owner, username, attributeProperty, topic, onChangeMode)
-		} else if topic == AttributesGatewayTopic {
-			//网关设备订阅平台属性变化
-			// todo: 参照直连设备到非直连设备的语法， 也可以直接查询直连设备的 mapper
-			devId := ""
-			s.CreateSubscribeEntity(owner, devId, attributeProperty, topic, onChangeMode)
-		} else if topic == CommandTopicRequest {
-			//订阅平台命令
-			s.CreateSubscribeEntity(owner, username, commandProperty, topic, realtimeMode)
-		} else if topic == AttributesTopicResponse || topic ==  AttributesGatewayTopicResponse {
-			//边端获取平台属性值
-			//do nothing
-			log.Debugf("client subscribe topic %s", topic)
-		} else {
-			return nil, errors.New("invalid topic")
-		}
+        log.Debugf("client subscribe topic: %s, username: %s", topic, username)
+        // 创建 core 订阅实体
+        if topic == AttributesTopic {
+            // 一般设备订阅平台属性变化
+            s.CreateSubscribeEntity(owner, username, attributeProperty, topic, onChangeMode)
+        } else if topic == AttributesGatewayTopic {
+            //网关设备订阅平台属性变化
+            // todo: 参照直连设备到非直连设备的语法， 也可以直接查询直连设备的 mapper
+            devId := ""
+            s.CreateSubscribeEntity(owner, devId, attributeProperty, topic, onChangeMode)
+        } else if topic == CommandTopicRequest {
+            //订阅平台命令
+            s.CreateSubscribeEntity(owner, username, commandProperty, topic, realtimeMode)
+        } else if topic == AttributesTopicResponse || topic == AttributesGatewayTopicResponse {
+            //边端获取平台属性值
+            //do nothing
+            log.Debugf("client subscribe topic %s", topic)
+        } else {
+            return nil, errors.New("invalid topic")
+        }
 
-	}
-	return &pb.EmptySuccess{}, nil
+    }
+    return &pb.EmptySuccess{}, nil
 }
 
 func (s *HookService) OnClientUnsubscribe(ctx context.Context, in *pb.ClientUnsubscribeRequest) (*pb.EmptySuccess, error) {
@@ -626,9 +626,9 @@ func (s *HookService) OnMessagePublish(ctx context.Context, in *pb.MessagePublis
             "mark":   MarkUpStream,
         },
     }
-	v, err := json.Marshal(data)
+    v, err := json.Marshal(data)
     if err != nil {
-		return res, err
+        return res, err
     }
     //
     log.Infof("iothub->core %s", string(v))
@@ -637,8 +637,8 @@ func (s *HookService) OnMessagePublish(ctx context.Context, in *pb.MessagePublis
         Value: sarama.ByteEncoder(v),
     }
     if err := s.daprClient.PublishEvent(context.Background(), "iothub-pubsub", "core-pub", data); err != nil {
-       log.Error(err)
-       return res, nil
+        log.Error(err)
+        return res, nil
     }
     res.Value = &pb.ValuedResponse_BoolResult{BoolResult: true}
     return res, nil
