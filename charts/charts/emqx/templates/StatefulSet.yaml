@@ -133,6 +133,10 @@ spec:
             value: http://iothub:9000
           - name: EMQX_LOADED_PLUGINS
             value: emqx_recon,emqx_retainer,emqx_management,emqx_dashboard,emqx_exhook,emqx_rule_engine,emqx_telemetry,emqx_coap,emqx_sn
+          - name: EMQX_MQTT__SN__USERNAME
+            value: this_should_be_changed_as_device_id
+          - name: EMQX_MQTT__SN__PASSWORD
+            value: this_should_be_changed_as_device_token
           resources:
 {{ toYaml .Values.resources | indent 12 }}
           volumeMounts:
