@@ -59,7 +59,10 @@ const (
     // default base url
     BaseUrl = `http://localhost:3500/v1.0/invoke/keel/method/apis`
 )
-
+const (
+    _envCorePubTopic = `CORE_PUB_TOPIC`
+    _envKafkaService = `KAFKA_SERVICE`
+)
 // HookService is used to implement emqx_exhook_v1.s *HookService.
 type HookService struct {
     pb.UnimplementedHookProviderServer
@@ -78,10 +81,11 @@ func NewHookService(client dapr.Client) *HookService {
     config := sarama.NewConfig()
     config.Producer.Return.Successes = true
     config.Producer.Return.Errors = true
-    address := []string{"kafka.keel-system.svc.cluster.local:9092"}
+    //address := []string{"kafka.keel-system.svc.cluster.local:9092"}
     //address := []string{"tkeel-middleware-kafka-headless:9092"}
-
-    p, err := sarama.NewAsyncProducer(address, config)
+    ad := envWithDefault(_envKafkaService, `kafka.keel-system.svc.cluster.local:9092`)
+    ads := strings.Split(ad, ";")
+    p, err := sarama.NewAsyncProducer(ads, config)
     // TODO: error
     if err != nil {
         panic("error")
@@ -101,16 +105,19 @@ func NewHookService(client dapr.Client) *HookService {
         }
     }(p)
     //
-    tp := `core-pub`
-    if s := os.Getenv("CORE_PUB_TOPIC"); s != "" {
-        tp = s
-    }
-    //
     return &HookService{
         daprClient:   client,
         producer:     p,
-        corePubTopic: tp,
+        corePubTopic: envWithDefault(_envCorePubTopic, "core-pub"),
     }
+}
+
+//
+func envWithDefault(envVal, defaultVal string) string {
+    if s := os.Getenv(envVal); s != "" {
+        return s
+    }
+    return defaultVal
 }
 
 // HookProviderServer callbacks
