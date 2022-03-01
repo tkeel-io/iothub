@@ -3,6 +3,7 @@ module github.com/tkeel-io/iothub
 go 1.16
 
 require (
+	github.com/Shopify/sarama v1.23.1
 	github.com/cloudevents/sdk-go/v2 v2.8.0
 	github.com/dapr/go-sdk v1.3.0
 	github.com/emicklei/go-restful v2.15.0+incompatible
