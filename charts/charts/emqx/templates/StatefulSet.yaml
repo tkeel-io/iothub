@@ -103,6 +103,8 @@ spec:
             containerPort: {{ .Values.emqxConfig.EMQX_DASHBOARD__LISTENER__HTTP | default 18083 }}
           - name: coap
             containerPort: {{ .Values.emqxConfig.EMQX_LISTENERS__COAP__DEFAULT | default 5683 }}
+          - name: lwm2m
+            containerPort: {{ .Values.emqxConfig.EMQX_LISTENERS__LWM2M__DEFAULT | default 5685 }}
           - name: sn
               containerPort: { { .Values.emqxConfig.EMQX_LISTENERS__SN__DEFAULT | default 1884 } }
           {{- if not (empty .Values.emqxConfig.EMQX_LISTENERS__TCP__DEFAULT) }}
@@ -132,7 +134,7 @@ spec:
           - name: EMQX_EXHOOK__SERVER__DEFAULT__URL
             value: http://iothub:9000
           - name: EMQX_LOADED_PLUGINS
-            value: emqx_recon,emqx_retainer,emqx_management,emqx_dashboard,emqx_exhook,emqx_rule_engine,emqx_telemetry,emqx_coap,emqx_sn
+            value: emqx_recon,emqx_retainer,emqx_management,emqx_dashboard,emqx_exhook,emqx_rule_engine,emqx_telemetry,emqx_coap,emqx_sn,emqx_lwm2m
           - name: EMQX_MQTT__SN__USERNAME
             value: this_should_be_changed_as_device_id
           - name: EMQX_MQTT__SN__PASSWORD

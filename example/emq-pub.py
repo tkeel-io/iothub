@@ -43,7 +43,7 @@ def publish(client):
             "attribute2": msg_count
         }
         data_telemetry = {
-            "ts": time.time_ns(),
+            "ts": time_in_ms(),
             "values": {
                 "telemetry1": "value1",
                 "telemetry2": msg_count
@@ -62,7 +62,7 @@ def publish(client):
         data_telemetry_gateway = {
             "devA": [
                 {
-                    "ts": time.time_ns(),
+                    "ts": time_in_ms(),
                     "values": {
                         "telemetry1": "value1",
                         "telemetry2": msg_count
@@ -97,6 +97,11 @@ def publish(client):
             print(f"Failed to send message to topic {topic}")
         msg_count += 1
         # msg_count = 4
+
+
+def time_in_ms():
+    ms = int(time.time() * 1000)
+    return ms
 
 
 def run():

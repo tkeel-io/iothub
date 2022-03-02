@@ -78,6 +78,9 @@ service:
   ## Port for CoAP
   ##
   coap: 5683
+  ## Port for LwM2M
+  ##
+  lwm2m: 5685
   ## Port for MQTT(SSL)
   ##
   mqttssl: 8883
@@ -103,6 +106,7 @@ service:
     mqtt: 31883
     sn: 31884
     coap: 30588
+    lwm2m: 30685
     mqttssl: 38883
     mgmt: 38081
     ws: 38083
