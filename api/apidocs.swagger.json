@@ -1,12 +1,12 @@
 {
   "swagger": "2.0",
   "info": {
-    "title": "api/helloworld/v1/error.proto",
+    "title": "api/iothub/v1/topic.proto",
     "version": "version not set"
   },
   "tags": [
     {
-      "name": "Greeter"
+      "name": "Topic"
     },
     {
       "name": "Openapi"
@@ -21,11 +21,11 @@
   "paths": {
     "/addons/identify": {
       "post": {
-        "summary": "Post addons identify.",
-        "operationId": "Openapi_AddonsIdentify",
+        "summary": "openapi addons identify",
+        "operationId": "Identify",
         "responses": {
           "200": {
-            "description": "A successful response.",
+            "description": "OK",
             "schema": {
               "$ref": "#/definitions/v1AddonsIdentifyResponse"
             }
@@ -52,52 +52,13 @@
         ]
       }
     },
-    "/helloworld/{name}": {
-      "post": {
-        "summary": "Sends a greeting",
-        "operationId": "Greeter_SayHello",
-        "responses": {
-          "200": {
-            "description": "A successful response.",
-            "schema": {
-              "$ref": "#/definitions/v1HelloResponse"
-            }
-          },
-          "default": {
-            "description": "An unexpected error response.",
-            "schema": {
-              "$ref": "#/definitions/rpcStatus"
-            }
-          }
-        },
-        "parameters": [
-          {
-            "name": "name",
-            "in": "path",
-            "required": true,
-            "type": "string"
-          },
-          {
-            "name": "body",
-            "in": "body",
-            "required": true,
-            "schema": {
-              "$ref": "#/definitions/v1Test"
-            }
-          }
-        ],
-        "tags": [
-          "Greeter"
-        ]
-      }
-    },
     "/identify": {
       "get": {
-        "summary": "Query identify.",
-        "operationId": "Openapi_Identify",
+        "summary": "openapi identify",
+        "operationId": "Identify",
         "responses": {
           "200": {
-            "description": "A successful response.",
+            "description": "OK",
             "schema": {
               "$ref": "#/definitions/v1IdentifyResponse"
             }
@@ -116,11 +77,11 @@
     },
     "/status": {
       "get": {
-        "summary": "Query status.",
-        "operationId": "Openapi_Status",
+        "summary": "openapi status",
+        "operationId": "Status",
         "responses": {
           "200": {
-            "description": "A successful response.",
+            "description": "OK",
             "schema": {
               "$ref": "#/definitions/v1StatusResponse"
             }
@@ -137,15 +98,15 @@
         ]
       }
     },
-    "/tenant/bind": {
+    "/tenant/disable": {
       "post": {
-        "summary": "Post tenant bind.",
-        "operationId": "Openapi_TenantBind",
+        "summary": "openapi tenant disable",
+        "operationId": "TenantDisable",
         "responses": {
           "200": {
-            "description": "A successful response.",
+            "description": "OK",
             "schema": {
-              "$ref": "#/definitions/v1TenantBindResponse"
+              "$ref": "#/definitions/v1TenantDisableResponse"
             }
           },
           "default": {
@@ -161,7 +122,7 @@
             "in": "body",
             "required": true,
             "schema": {
-              "$ref": "#/definitions/v1TenantBindRequst"
+              "$ref": "#/definitions/v1TenantDisableRequest"
             }
           }
         ],
@@ -170,15 +131,15 @@
         ]
       }
     },
-    "/tenant/unbind": {
+    "/tenant/enable": {
       "post": {
-        "summary": "Post tenant bind.",
-        "operationId": "Openapi_TenantUnbind",
+        "summary": "openapi tenant enable",
+        "operationId": "TenantEnable",
         "responses": {
           "200": {
-            "description": "A successful response.",
+            "description": "OK",
             "schema": {
-              "$ref": "#/definitions/v1TenantUnbindResponse"
+              "$ref": "#/definitions/v1TenantEnableResponse"
             }
           },
           "default": {
@@ -194,7 +155,7 @@
             "in": "body",
             "required": true,
             "schema": {
-              "$ref": "#/definitions/v1TenantUnbindRequst"
+              "$ref": "#/definitions/v1TenantEnableRequest"
             }
           }
         ],
@@ -202,9 +163,53 @@
           "Openapi"
         ]
       }
+    },
+    "/topic": {
+      "post": {
+        "operationId": "Topic_TopicEventHandler",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1TopicEventResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/v1TopicEventRequest"
+            }
+          }
+        ],
+        "tags": [
+          "Topic"
+        ]
+      }
     }
   },
   "definitions": {
+    "PermissionDependence": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "desc": {
+          "type": "string",
+          "description": "ID\u003e/authority ID.The content in \u003c\u003e is variable."
+        }
+      }
+    },
     "protobufAny": {
       "type": "object",
       "properties": {
@@ -213,6 +218,14 @@
         }
       },
       "additionalProperties": {}
+    },
+    "protobufNullValue": {
+      "type": "string",
+      "enum": [
+        "NULL_VALUE"
+      ],
+      "default": "NULL_VALUE",
+      "description": "`NullValue` is a singleton enumeration to represent the null value for the\n`Value` type union.\n\n The JSON representation for `NullValue` is JSON `null`.\n\n - NULL_VALUE: Null value."
     },
     "rpcStatus": {
       "type": "object",
@@ -280,14 +293,32 @@
       },
       "description": "*\nmessage brief plugin information."
     },
-    "v1HelloResponse": {
+    "v1ConsoleEntry": {
       "type": "object",
       "properties": {
-        "message": {
+        "id": {
           "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "icon": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "entry": {
+          "type": "string"
+        },
+        "children": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/v1ConsoleEntry"
+          }
         }
       },
-      "title": "The response message containing the greetings"
+      "description": "plugin console entry."
     },
     "v1IdentifyResponse": {
       "type": "object",
@@ -314,6 +345,24 @@
           "type": "array",
           "items": {
             "$ref": "#/definitions/v1ImplementedPlugin"
+          }
+        },
+        "entries": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/v1ConsoleEntry"
+          }
+        },
+        "dependence": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/v1BriefPluginInfo"
+          }
+        },
+        "permissions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/v1Permission"
           }
         }
       },
@@ -346,16 +395,42 @@
       },
       "description": "*\nmessage plugin implemented other plugin."
     },
+    "v1Permission": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "dependences": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/PermissionDependence"
+          }
+        },
+        "desc": {
+          "type": "string"
+        },
+        "children": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/v1Permission"
+          }
+        }
+      },
+      "description": "plugin define permission."
+    },
     "v1PluginStatus": {
       "type": "string",
       "enum": [
-        "ERROR",
-        "STARTING",
-        "RUNING",
-        "STOPPING",
-        "STOPPED"
+        "UNKNOWN",
+        "WAIT_RUNNING",
+        "ERR_REGISTER",
+        "RUNNING"
       ],
-      "default": "ERROR",
+      "default": "UNKNOWN",
       "description": "*\nplugin state enum."
     },
     "v1Result": {
@@ -392,7 +467,7 @@
       },
       "description": "*\nThe request value of the GET /v1/Status.\nused when the tkeel checks the status of plugins regularly."
     },
-    "v1TenantBindRequst": {
+    "v1TenantDisableRequest": {
       "type": "object",
       "properties": {
         "tenant_id": {
@@ -403,18 +478,18 @@
           "format": "byte"
         }
       },
-      "description": "*\nThe request value of the POST /v1/tenant/bind,\nused when the tenant administrator enables the plugin."
+      "description": "*\nThe request value of the POST /v1/tenant/disable,\nused when the tenant administrator disables the plugin."
     },
-    "v1TenantBindResponse": {
+    "v1TenantDisableResponse": {
       "type": "object",
       "properties": {
         "res": {
           "$ref": "#/definitions/v1Result"
         }
       },
-      "description": "*\nThe response value of the POST /v1/tenant/bind,\nused when the tenant administrator enables the plugin."
+      "description": "*\nThe response value of the POST /v1/tenant/disable,\nused when the tenant administrator disables the plugin."
     },
-    "v1TenantUnbindRequst": {
+    "v1TenantEnableRequest": {
       "type": "object",
       "properties": {
         "tenant_id": {
@@ -425,24 +500,56 @@
           "format": "byte"
         }
       },
-      "description": "*\nThe request value of the POST /v1/tenant/unbind,\nused when the tenant administrator disables the plugin."
+      "description": "*\nThe request value of the POST /v1/tenant/enable,\nused when the tenant administrator enables the plugin."
     },
-    "v1TenantUnbindResponse": {
+    "v1TenantEnableResponse": {
       "type": "object",
       "properties": {
         "res": {
           "$ref": "#/definitions/v1Result"
         }
       },
-      "description": "*\nThe response value of the POST /v1/tenant/unbind,\nused when the tenant administrator disables the plugin."
+      "description": "*\nThe response value of the POST /v1/tenant/enable,\nused when the tenant administrator enables the plugin."
     },
-    "v1Test": {
+    "v1TopicEventRequest": {
       "type": "object",
       "properties": {
-        "aaa": {
+        "id": {
           "type": "string"
         },
-        "bbb": {
+        "specversion": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        },
+        "source": {
+          "type": "string"
+        },
+        "datacontenttype": {
+          "type": "string"
+        },
+        "data": {
+          "type": "object"
+        },
+        "data_base64": {
+          "type": "string"
+        },
+        "subject": {
+          "type": "string"
+        },
+        "topic": {
+          "type": "string"
+        },
+        "pubsubname": {
+          "type": "string"
+        }
+      }
+    },
+    "v1TopicEventResponse": {
+      "type": "object",
+      "properties": {
+        "status": {
           "type": "string"
         }
       }

@@ -42,9 +42,9 @@ build:
 generate:
 	go generate ./...
 docker-build:
-	docker build -t tkeelio/iothub:0.3.3 .
+	docker build -t tkeelio/iothub:0.4.0 .
 docker-push:
-	docker push tkeelio/iothub:0.3.3
+	docker push tkeelio/iothub:0.4.0
 
 .PHONY: all
 # generate all

@@ -34,7 +34,7 @@ spec:
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           env:
             - name: CORE_PUB_TOPIC
-              value: "core-pub-test"
+              value: "core-pub"
             - name: KAFKA_SERVICE
               value: "kafka.keel-system.svc.cluster.local:9092"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
