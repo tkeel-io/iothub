@@ -694,7 +694,7 @@ func AddDefaultAuthHeader(req *http.Request) {
 
 // create SubscribeEntity
 func (s *HookService) CreateSubscribeEntity(owner, devId, itemType, subscriptionTopic, subscriptionMode string) error {
-    subId := GetUUID()
+    subId := fmt.Sprintf("%s%s","sub-",GetUUID())
     subReq := &v1.SubscriptionObject{
         PubsubName: "iothub-pubsub",
         Topic:      "sub-core",
