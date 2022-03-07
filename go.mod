@@ -12,9 +12,10 @@ require (
 	github.com/json-iterator/go v1.1.12
 	github.com/pkg/errors v0.9.1
 	github.com/tkeel-io/core v0.2.0
-	github.com/tkeel-io/kit v0.0.0-20211223050802-7dfccfe43fdb
-	github.com/tkeel-io/tkeel-interface/openapi v0.0.0-20211223081012-25aaa61491ab
-	google.golang.org/genproto v0.0.0-20211118181313-81c1377c94b1
-	google.golang.org/grpc v1.42.0
+	github.com/tkeel-io/kit v0.0.0-20220214021338-d36b084b71ae
+	github.com/tkeel-io/tkeel-interface/openapi v0.0.0-20220303151503-0f9a4a00fd77
+	github.com/tkeel-io/tkeel-template-go v0.0.0-20220214074537-db4deab2469c
+	google.golang.org/genproto v0.0.0-20220211171837-173942840c17
+	google.golang.org/grpc v1.44.0
 	google.golang.org/protobuf v1.27.1
 )

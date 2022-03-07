@@ -107,10 +107,10 @@ service:
     sn: 31884
     coap: 30588
     lwm2m: 30685
-    mqttssl: 38883
-    mgmt: 38081
-    ws: 38083
-    wss: 38084
+    mqttssl: 30883
+    mgmt: 31082
+    ws: 30083
+    wss: 30084
     dashboard:
     dashboardtls:
   ## Set the LoadBalancer service type to internal only.
