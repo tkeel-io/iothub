@@ -104,7 +104,7 @@ spec:
           - name: coap
             containerPort: {{ .Values.emqxConfig.EMQX_LISTENERS__COAP__DEFAULT | default 5683 }}
           - name: sn
-              containerPort: {{ .Values.emqxConfig.EMQX_LISTENERS__SN__DEFAULT | default 1884 }}
+            containerPort: {{ .Values.emqxConfig.EMQX_LISTENERS__SN__DEFAULT | default 1884 }}
           {{- if not (empty .Values.emqxConfig.EMQX_LISTENERS__TCP__DEFAULT) }}
           - name: internalmqtt
             containerPort: {{ .Values.emqxConfig.EMQX_LISTENERS__TCP__DEFAULT }}
