@@ -25,3 +25,6 @@ appVersion: "0.4.1"
 
 dependencies:
   - name: emqx
+
+annotations:
+  tkeel.io/enable: "false"
