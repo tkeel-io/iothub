@@ -34,8 +34,8 @@ func (s *OpenapiService) Identify(ctx context.Context, in *emptypb.Empty) (*open
         Res:                     util.GetV1ResultOK(),
         PluginId:                "iothub",
         Version:                 "v0.4.1",
-        TkeelVersion:            "v0.4.1",
-        DisableManualActivation: true,
+        TkeelVersion:            "v0.4.0",
+        //DisableManualActivation: true,
     }, nil
 }
 

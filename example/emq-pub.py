@@ -8,15 +8,15 @@ from paho.mqtt import client as mqtt_client
 
 
 broker = '192.168.123.9'
-port = 31136
+port = 31883
 topic_attributes = "v1/devices/me/attributes"
 topic_telemetry = "v1/devices/me/telemetry"
 topic_attributes_gateway = "v1/gateway/attributes"
 topic_telemetry_gateway = "v1/gateway/telemetry"
 # generate client ID with pub prefix randomly
 client_id = f'python-mqtt-{random.randint(0, 1000)}'
-username = 'a8e92c6d-0f73-4f7a-8b85-0f110155eed2'
-password = "NWExMTg3NTUtZWVhNS0zYzNiLWEzNmEtODIzMDU2MWFkMWM1"
+username = 'iotd-ff565551-7c86-44b9-b2e9-504806e04cba'
+password = "YTVkMGU5YTctZjYxNi0zYmRhLThjM2EtYmJkYmNiZmJmYTcy"
 
 
 def connect_mqtt():

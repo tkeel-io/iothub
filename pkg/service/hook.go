@@ -37,6 +37,7 @@ const (
     telemetryProperty   = `telemetry`
     commandProperty     = `commands`
     connectInfoProperty = `connectInfo`
+    rawDownProperty     = `rawDown`
 
     // mark
     MarkUpStream   = "upstream"
@@ -422,6 +423,10 @@ func (s *HookService) OnClientSubscribe(ctx context.Context, in *pb.ClientSubscr
         } else if topic == AttributesTopicResponse || topic == AttributesGatewayTopicResponse {
             //边端获取平台属性值
             //do nothing
+            log.Debugf("client subscribe topic %s", topic)
+        }else if topic == RawDataTopic {
+            //边端订阅平台原始数据
+            s.CreateSubscribeEntity(owner, username, rawDownProperty, topic, realtimeMode)
             log.Debugf("client subscribe topic %s", topic)
         } else {
             return nil, errors.New("invalid topic")
