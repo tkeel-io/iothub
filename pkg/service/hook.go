@@ -375,10 +375,32 @@ func GetUsername(Clientinfo *pb.ClientInfo) string {
     var username string
     if protocol == "coap" {
         username = Clientinfo.GetClientid()
+    }else if protocol == "lwm2m" {
+        username = SplitLwm2mClientID(Clientinfo.GetClientid(), 0)
     } else {
         username = Clientinfo.GetUsername()
     }
     return username
+}
+
+func SplitLwm2mClientID(lwm2mClientID string, index int) string {
+    // LwM2M client id should be username@password
+    idArray := strings.Split(lwm2mClientID, "@")
+    if len(idArray) < 2 || index > (len(idArray) + 1){
+        return ""
+    }
+    return idArray[index]
+}
+
+func GetPassword(Clientinfo *pb.ClientInfo) string {
+    protocol := Clientinfo.GetProtocol()
+    var pw string
+    if protocol == "lwm2m" {
+        pw = SplitLwm2mClientID(Clientinfo.GetClientid(), 1)
+    } else {
+        pw = Clientinfo.GetPassword()
+    }
+    return pw
 }
 
 func (s *HookService) OnClientAuthenticate(ctx context.Context, in *pb.ClientAuthenticateRequest) (*pb.ValuedResponse, error) {
@@ -386,7 +408,12 @@ func (s *HookService) OnClientAuthenticate(ctx context.Context, in *pb.ClientAut
     res.Type = pb.ValuedResponse_STOP_AND_RETURN
     log.Debug(in.GetClientinfo())
     username := GetUsername(in.Clientinfo)
-    authRes := s.auth(in.Clientinfo.GetPassword(), username)
+    pw := GetPassword(in.Clientinfo)
+    if username == "" || pw == "" {
+        log.Warnf("invalid username %s or password %s", username, pw)
+        return res, nil
+    }
+    authRes := s.auth(pw, username)
     res.Value = &pb.ValuedResponse_BoolResult{BoolResult: authRes}
     return res, nil
 }
@@ -533,6 +560,12 @@ func getUserNameFromTopic(topic string) (user string) {
     if len(items) != 2 {
         return
     }
+    // lwm2m protocol
+    if items[0] == "lwm2m"{
+        lwm2mClientId := getUserNameFromTopic(items[1])
+        username := SplitLwm2mClientID(lwm2mClientId, 0)
+        return username
+    }
     return items[0]
 }
 
@@ -568,6 +601,7 @@ func (s *HookService) OnMessagePublish(ctx context.Context, in *pb.MessagePublis
     username := getUserNameFromTopic(in.Message.Topic)
     //get owner
     owner, err := s.GetState(username + devEntitySuffixKey)
+    log.Infof("find username: %s owner: %s", username, owner)
     if err != nil {
         return nil, err
     }
@@ -578,6 +612,7 @@ func (s *HookService) OnMessagePublish(ctx context.Context, in *pb.MessagePublis
     data["source"] = "iothub"
     topic := in.GetMessage().Topic
     payloadBytes := in.GetMessage().GetPayload()
+    log.Infof("receive topic: %s payload: %s", topic, string(payloadBytes))
     /*
     	{
     	   "id": "device_123",
