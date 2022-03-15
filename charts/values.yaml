@@ -8,7 +8,7 @@ image:
   repository: tkeelio/iothub
   pullPolicy: Always
   # Overrides the image tag whose default is the chart appVersion.
-  tag: "0.4.2.alpha"
+  # tag: "0.4.2.alpha"
 
 #imagePullSecrets:
 #  - name: hub-qingcloud
