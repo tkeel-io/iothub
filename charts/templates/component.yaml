@@ -2,7 +2,7 @@ apiVersion: dapr.io/v1alpha1
 kind: Component
 metadata:
   name: iothub-private-store
-  namespace: keel-system
+  namespace: {{ $.Release.Namespace | quote }}
 spec:
   type: state.redis
   version: v1
