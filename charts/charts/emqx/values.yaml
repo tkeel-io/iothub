@@ -106,7 +106,7 @@ service:
     mqtt: 31883
     sn: 31884
     coap: 30588
-    lwm2m: 30685
+#    lwm2m: 30685
     mqttssl: 30883
     mgmt: 31082
     ws: 30083
