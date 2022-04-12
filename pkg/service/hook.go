@@ -375,7 +375,7 @@ func GetUsername(Clientinfo *pb.ClientInfo) string {
     var username string
     if protocol == "coap" {
         username = Clientinfo.GetClientid()
-    }else if protocol == "lwm2m" {
+    } else if protocol == "lwm2m" {
         username = SplitLwm2mClientID(Clientinfo.GetClientid(), 0)
     } else {
         username = Clientinfo.GetUsername()
@@ -386,7 +386,7 @@ func GetUsername(Clientinfo *pb.ClientInfo) string {
 func SplitLwm2mClientID(lwm2mClientID string, index int) string {
     // LwM2M client id should be username@password
     idArray := strings.Split(lwm2mClientID, "@")
-    if len(idArray) < 2 || index > (len(idArray) + 1){
+    if len(idArray) < 2 || index > (len(idArray)+1) {
         return ""
     }
     return idArray[index]
@@ -438,27 +438,37 @@ func (s *HookService) OnClientSubscribe(ctx context.Context, in *pb.ClientSubscr
         // 创建 core 订阅实体
         if topic == AttributesTopic {
             // 一般设备订阅平台属性变化
-            s.CreateSubscribeEntity(owner, username, attributeProperty, topic, onChangeMode)
+            if err := s.CreateSubscribeEntity(owner, username, attributeProperty, topic, onChangeMode); err != nil {
+                log.Errorf("client subscribe topic: %s [err:%s]", topic, err.Error())
+                return nil, err
+            }
         } else if topic == AttributesGatewayTopic {
             //网关设备订阅平台属性变化
             // todo: 参照直连设备到非直连设备的语法， 也可以直接查询直连设备的 mapper
             devId := ""
-            s.CreateSubscribeEntity(owner, devId, attributeProperty, topic, onChangeMode)
+            if err := s.CreateSubscribeEntity(owner, devId, attributeProperty, topic, onChangeMode); err != nil {
+                log.Errorf("client subscribe topic: %s [err:%s]", topic, err.Error())
+                return nil, err
+            }
         } else if topic == CommandTopicRequest {
             //订阅平台命令
-            s.CreateSubscribeEntity(owner, username, commandProperty, topic, realtimeMode)
+            if err := s.CreateSubscribeEntity(owner, username, commandProperty, topic, realtimeMode); err != nil {
+                log.Errorf("client subscribe topic: %s [err:%s]", topic, err.Error())
+                return nil, err
+            }
         } else if topic == AttributesTopicResponse || topic == AttributesGatewayTopicResponse {
             //边端获取平台属性值
             //do nothing
             log.Debugf("client subscribe topic %s", topic)
-        }else if topic == RawDataTopic {
+        } else if topic == RawDataTopic {
             //边端订阅平台原始数据
-            s.CreateSubscribeEntity(owner, username, rawDownProperty, topic, realtimeMode)
-            log.Debugf("client subscribe topic %s", topic)
+            if err := s.CreateSubscribeEntity(owner, username, rawDownProperty, topic, realtimeMode); err != nil {
+                log.Errorf("client subscribe topic: %s [err:%s]", topic, err.Error())
+                return nil, err
+            }
         } else {
             return nil, errors.New("invalid topic")
         }
-
     }
     return &pb.EmptySuccess{}, nil
 }
@@ -561,7 +571,7 @@ func getUserNameFromTopic(topic string) (user string) {
         return
     }
     // lwm2m protocol
-    if items[0] == "lwm2m"{
+    if items[0] == "lwm2m" {
         lwm2mClientId := getUserNameFromTopic(items[1])
         username := SplitLwm2mClientID(lwm2mClientId, 0)
         return username
@@ -734,7 +744,7 @@ func AddDefaultAuthHeader(req *http.Request) {
 
 // create SubscribeEntity
 func (s *HookService) CreateSubscribeEntity(owner, devId, itemType, subscriptionTopic, subscriptionMode string) error {
-    subId := fmt.Sprintf("%s%s","sub-",GetUUID())
+    subId := fmt.Sprintf("%s%s", "sub-", GetUUID())
     subReq := &v1.SubscriptionObject{
         PubsubName: "iothub-pubsub",
         Topic:      "sub-core",
@@ -743,7 +753,7 @@ func (s *HookService) CreateSubscribeEntity(owner, devId, itemType, subscription
         Source:     "tkeel-device",
         Target:     "iothub",
     }
-    log.Debug("create SubscribeEntity: ", subReq)
+    log.Info("create SubscribeEntity: ", subReq)
 
     data, err := json.Marshal(subReq)
     if nil != err {
