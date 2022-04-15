@@ -2,6 +2,7 @@ package service
 
 import (
     "context"
+    "crypto/md5"
     "encoding/base64"
     "encoding/json"
     "fmt"
@@ -12,7 +13,6 @@ import (
     "strconv"
     "strings"
     "time"
-    "crypto/md5"
 
     "github.com/Shopify/sarama"
     cloudevents "github.com/cloudevents/sdk-go/v2"
@@ -438,6 +438,16 @@ func validSubTopic(topic string) bool {
     }
     return false
 }
+func getSubKeyFromTopic(tp string) string {
+    switch tp {
+    case RawDataTopic:
+        return rawDataProperty
+    case AttributesTopic:
+    case AttributesGatewayTopic:
+        return attributeProperty
+    }
+    return "*"
+}
 
 func (s *HookService) OnClientSubscribe(ctx context.Context, in *pb.ClientSubscribeRequest) (*pb.EmptySuccess, error) {
     topics := in.GetTopicFilters()
@@ -455,12 +465,11 @@ func (s *HookService) OnClientSubscribe(ctx context.Context, in *pb.ClientSubscr
         if !validSubTopic(topic) {
             return nil, errors.New("invalid topic")
         }
+        //
+        itemType := getSubKeyFromTopic(topic)
         // topic 没有订阅过才需要创建实体
-        if v, _ := s.GetState(topic); len(v) == 0 {
-            log.Debugf("client subscribe topic: %s", username)
-            if err := s.CreateSubscribeEntity(owner, username, "*", topic, realtimeMode); err != nil {
-                return nil, err
-            }
+        if err := s.CreateSubscribeEntity(owner, username, itemType, topic, realtimeMode); err != nil {
+            return nil, err
         }
 
         //// 创建 core 订阅实体
@@ -474,10 +483,10 @@ func (s *HookService) OnClientSubscribe(ctx context.Context, in *pb.ClientSubscr
         //    //网关设备订阅平台属性变化
         //    // todo: 参照直连设备到非直连设备的语法， 也可以直接查询直连设备的 mapper
         //    devId := ""
-        //    if err := s.CreateSubscribeEntity(owner, devId, attributeProperty, topic, onChangeMode); err != nil {
-        //        log.Errorf("client subscribe topic: %s [err:%s]", topic, err.Error())
-        //        return nil, err
-        //    }
+        //   if err := s.CreateSubscribeEntity(owner, devId, attributeProperty, topic, onChangeMode); err != nil {
+        //       log.Errorf("client subscribe topic: %s [err:%s]", topic, err.Error())
+        //       return nil, err
+        //   }
         //} else if topic == CommandTopicRequest {
         //    //订阅平台命令
         //    if err := s.CreateSubscribeEntity(owner, username, commandProperty, topic, realtimeMode); err != nil {
@@ -774,7 +783,7 @@ func AddDefaultAuthHeader(req *http.Request) {
 // create SubscribeEntity
 func (s *HookService) CreateSubscribeEntity(owner, devId, itemType, subscriptionTopic, subscriptionMode string) error {
     // md5(topic)
-    subId := fmt.Sprintf("sub-%x", md5.Sum([]byte(subscriptionTopic + itemType)))
+    subId := fmt.Sprintf("sub-%x", md5.Sum([]byte(subscriptionTopic+itemType)))
     //subId := fmt.Sprintf("%s%s", "sub-", GetUUID())
     subReq := &v1.SubscriptionObject{
         PubsubName: "iothub-pubsub",
@@ -784,7 +793,7 @@ func (s *HookService) CreateSubscribeEntity(owner, devId, itemType, subscription
         Source:     "tkeel-device",
         Target:     "iothub",
     }
-    log.Info("create SubscribeEntity: ", subReq)
+    log.Debug("create SubscribeEntity: ", subReq)
 
     data, err := json.Marshal(subReq)
     if nil != err {
