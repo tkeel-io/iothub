@@ -2,6 +2,7 @@ package service
 
 import (
     "context"
+    "crypto/md5"
     "encoding/base64"
     "encoding/json"
     "fmt"
@@ -375,7 +376,7 @@ func GetUsername(Clientinfo *pb.ClientInfo) string {
     var username string
     if protocol == "coap" {
         username = Clientinfo.GetClientid()
-    }else if protocol == "lwm2m" {
+    } else if protocol == "lwm2m" {
         username = SplitLwm2mClientID(Clientinfo.GetClientid(), 0)
     } else {
         username = Clientinfo.GetUsername()
@@ -386,7 +387,7 @@ func GetUsername(Clientinfo *pb.ClientInfo) string {
 func SplitLwm2mClientID(lwm2mClientID string, index int) string {
     // LwM2M client id should be username@password
     idArray := strings.Split(lwm2mClientID, "@")
-    if len(idArray) < 2 || index > (len(idArray) + 1){
+    if len(idArray) < 2 || index > (len(idArray)+1) {
         return ""
     }
     return idArray[index]
@@ -422,43 +423,67 @@ func (s *HookService) OnClientCheckAcl(ctx context.Context, in *pb.ClientCheckAc
     return &pb.ValuedResponse{}, nil
 }
 
+var _validSubTopics = map[string]struct{}{
+    DeviceDebugTopic:               {},
+    AttributesTopic:                {},
+    AttributesGatewayTopic:         {},
+    CommandTopicRequest:            {},
+    RawDataTopic:                   {},
+    AttributesTopicResponse:        {},
+    AttributesGatewayTopicResponse: {},
+}
+
+func validSubTopic(topic string) bool {
+    if _, ok := _validSubTopics[topic]; ok {
+        return true
+    }
+    return false
+}
+
+//
+func getSubKeyFromTopic(tp string) string {
+    switch tp {
+    case RawDataTopic:
+        return rawDataProperty
+    case AttributesTopic:
+        return attributeProperty
+    case AttributesGatewayTopic:
+        return attributeProperty
+    case DeviceDebugTopic:
+        return "*"
+    }
+    return ""
+}
+
 func (s *HookService) OnClientSubscribe(ctx context.Context, in *pb.ClientSubscribeRequest) (*pb.EmptySuccess, error) {
     topics := in.GetTopicFilters()
     username := in.Clientinfo.GetUsername()
     for _, tf := range topics {
         topic := tf.GetName()
-        //get owner
+        // 获取设备token(mqtt 的 pwd)
         value, err := s.GetState(username + devEntitySuffixKey)
         if err != nil {
             return nil, err
         }
         owner := string(value)
 
-        log.Debugf("client subscribe topic: %s, username: %s", topic, username)
-        // 创建 core 订阅实体
-        if topic == AttributesTopic {
-            // 一般设备订阅平台属性变化
-            s.CreateSubscribeEntity(owner, username, attributeProperty, topic, onChangeMode)
-        } else if topic == AttributesGatewayTopic {
-            //网关设备订阅平台属性变化
-            // todo: 参照直连设备到非直连设备的语法， 也可以直接查询直连设备的 mapper
-            devId := ""
-            s.CreateSubscribeEntity(owner, devId, attributeProperty, topic, onChangeMode)
-        } else if topic == CommandTopicRequest {
-            //订阅平台命令
-            s.CreateSubscribeEntity(owner, username, commandProperty, topic, realtimeMode)
-        } else if topic == AttributesTopicResponse || topic == AttributesGatewayTopicResponse {
-            //边端获取平台属性值
-            //do nothing
-            log.Debugf("client subscribe topic %s", topic)
-        }else if topic == RawDataTopic {
-            //边端订阅平台原始数据
-            s.CreateSubscribeEntity(owner, username, rawDownProperty, topic, realtimeMode)
-            log.Debugf("client subscribe topic %s", topic)
-        } else {
+        if !validSubTopic(topic) {
+            log.Errorf("invalid topic:%s username:%s", topic, username)
             return nil, errors.New("invalid topic")
         }
+        //
+        itemType := getSubKeyFromTopic(topic)
 
+        if itemType == "" {
+            log.Errorf("invalid itemType:%s username:%s", itemType, username)
+            return nil, errors.New("invalid itemType")
+        }
+
+        //itemType = "*"
+        log.Debugf("client subscribe:%s itemType:%", owner, itemType)
+        if err := s.CreateSubscribeEntity(owner, username, itemType, topic, realtimeMode); err != nil {
+            return nil, err
+        }
     }
     return &pb.EmptySuccess{}, nil
 }
@@ -501,6 +526,7 @@ func (s *HookService) OnClientUnsubscribe(ctx context.Context, in *pb.ClientUnsu
 func (s *HookService) OnSessionCreated(ctx context.Context, in *pb.SessionCreatedRequest) (*pb.EmptySuccess, error) {
     return &pb.EmptySuccess{}, nil
 }
+
 func (s *HookService) OnSessionSubscribed(ctx context.Context, in *pb.SessionSubscribedRequest) (*pb.EmptySuccess, error) {
     return &pb.EmptySuccess{}, nil
 }
@@ -561,7 +587,7 @@ func getUserNameFromTopic(topic string) (user string) {
         return
     }
     // lwm2m protocol
-    if items[0] == "lwm2m"{
+    if items[0] == "lwm2m" {
         lwm2mClientId := getUserNameFromTopic(items[1])
         username := SplitLwm2mClientID(lwm2mClientId, 0)
         return username
@@ -734,7 +760,9 @@ func AddDefaultAuthHeader(req *http.Request) {
 
 // create SubscribeEntity
 func (s *HookService) CreateSubscribeEntity(owner, devId, itemType, subscriptionTopic, subscriptionMode string) error {
-    subId := fmt.Sprintf("%s%s","sub-",GetUUID())
+    // md5(topic)
+    subId := fmt.Sprintf("sub-%x", md5.Sum([]byte(subscriptionTopic+itemType)))
+    //subId := fmt.Sprintf("%s%s", "sub-", GetUUID())
     subReq := &v1.SubscriptionObject{
         PubsubName: "iothub-pubsub",
         Topic:      "sub-core",

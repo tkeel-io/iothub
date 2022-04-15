@@ -1,5 +1,6 @@
 package service
 
+const DeviceDebugTopic = "v1/devices/debug"
 const RawDataTopic string = "v1/devices/me/raw"
 const AttributesTopic string = "v1/devices/me/attributes"
 const AttributesGatewayTopic = "v1/gateway/attributes"
