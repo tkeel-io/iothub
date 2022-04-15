@@ -4,6 +4,7 @@ import (
     "context"
     "encoding/base64"
     "encoding/json"
+    "fmt"
     "github.com/pkg/errors"
     pb "github.com/tkeel-io/iothub/api/iothub/v1"
     "github.com/tkeel-io/kit/log"
@@ -45,14 +46,15 @@ func (s *TopicService) TopicEventHandler(ctx context.Context, req *pb.TopicEvent
     if err != nil {
         return nil, err
     }
+
     strReqJson := string(bys)
     devId := gjson.Get(strReqJson, "id").String()
     subId := gjson.Get(strReqJson, "subscribe_id").String()
-    properties := gjson.Get(strReqJson, "properties").Map()
 
     if len(devId) == 0 || len(subId) == 0 {
         return nil, errors.New("invalid params")
     }
+
     subTopic, err := s.hookSvc.GetState(subId)
     if err != nil {
         return &pb.TopicEventResponse{Status: SubscriptionResponseStatusDrop}, err
@@ -61,16 +63,27 @@ func (s *TopicService) TopicEventHandler(ctx context.Context, req *pb.TopicEvent
         log.Errorf("TopicEventHandler.GetState:devId=%s  err=%s", devId, err.Error())
         return &pb.TopicEventResponse{Status: SubscriptionResponseStatusDrop}, err
     }
-    //payload := make(map[string]interface{})
-    payload := properties
     //
-    ackTopic := devId + "/" + GetSubscriptionAckTopic(string(subTopic))
+    strSubTopic := string(subTopic)
+    //ackTopic := devId + "/" + GetSubscriptionAckTopic(strSubTopic)
+    ackTopic := fmt.Sprintf("%s/%s", devId, strSubTopic)
+    // key in properties
+    keyOfProp := getSubKeyFromTopic(strSubTopic)
+    //
+    pathJson := "properties"
+    //
+    if keyOfProp != "*" {
+        pathJson = fmt.Sprintf("%s.%s", pathJson, keyOfProp)
+    }
+    //
+    payload := gjson.Get(strReqJson, pathJson).Map()
+    log.Debugf("TopicEventHandler: subId=%s pathJson=%s payload=%v ackTopic=%s", subId, pathJson, payload, ackTopic)
     // publish(post) data to emq
     if err := Publish(devId, ackTopic, defaultDownStreamClientId, 0, false, payload); nil != err {
         log.Errorf("TopicEventHandler.Publish:devId=%s ackTopic=%s err=%s", devId, ackTopic, err.Error())
         return &pb.TopicEventResponse{Status: SubscriptionResponseStatusDrop}, err
     }
-    log.Debugf("receive pubsub topic6")
+
     return &pb.TopicEventResponse{Status: SubscriptionResponseStatusSuccess}, nil
 
     //var payload interface{}

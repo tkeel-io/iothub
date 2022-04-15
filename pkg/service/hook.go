@@ -424,6 +424,7 @@ func (s *HookService) OnClientCheckAcl(ctx context.Context, in *pb.ClientCheckAc
 }
 
 var _validSubTopics = map[string]struct{}{
+    DeviceDebugTopic:               {},
     AttributesTopic:                {},
     AttributesGatewayTopic:         {},
     CommandTopicRequest:            {},
@@ -448,6 +449,8 @@ func getSubKeyFromTopic(tp string) string {
         return attributeProperty
     case AttributesGatewayTopic:
         return attributeProperty
+    case DeviceDebugTopic:
+        return "*"
     }
     return ""
 }
