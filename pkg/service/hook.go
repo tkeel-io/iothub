@@ -438,15 +438,18 @@ func validSubTopic(topic string) bool {
     }
     return false
 }
+
+//
 func getSubKeyFromTopic(tp string) string {
     switch tp {
     case RawDataTopic:
         return rawDataProperty
     case AttributesTopic:
+        return attributeProperty
     case AttributesGatewayTopic:
         return attributeProperty
     }
-    return "*"
+    return ""
 }
 
 func (s *HookService) OnClientSubscribe(ctx context.Context, in *pb.ClientSubscribeRequest) (*pb.EmptySuccess, error) {
@@ -461,51 +464,23 @@ func (s *HookService) OnClientSubscribe(ctx context.Context, in *pb.ClientSubscr
         }
         owner := string(value)
 
-        log.Debugf("client subscribe topic: %s, username: %s", topic, username)
         if !validSubTopic(topic) {
+            log.Errorf("invalid topic:%s username:%s", topic, username)
             return nil, errors.New("invalid topic")
         }
         //
         itemType := getSubKeyFromTopic(topic)
-        // topic 没有订阅过才需要创建实体
+
+        if itemType == "" {
+            log.Errorf("invalid itemType:%s username:%s", itemType, username)
+            return nil, errors.New("invalid itemType")
+        }
+
+        //itemType = "*"
+        log.Debugf("client subscribe:%s itemType:%", owner, itemType)
         if err := s.CreateSubscribeEntity(owner, username, itemType, topic, realtimeMode); err != nil {
             return nil, err
         }
-
-        //// 创建 core 订阅实体
-        //if topic == AttributesTopic {
-        //    // 一般设备订阅平台属性变化
-        //    if err := s.CreateSubscribeEntity(owner, username, attributeProperty, topic, onChangeMode); err != nil {
-        //        log.Errorf("client subscribe topic: %s [err:%s]", topic, err.Error())
-        //        return nil, err
-        //    }
-        //} else if topic == AttributesGatewayTopic {
-        //    //网关设备订阅平台属性变化
-        //    // todo: 参照直连设备到非直连设备的语法， 也可以直接查询直连设备的 mapper
-        //    devId := ""
-        //   if err := s.CreateSubscribeEntity(owner, devId, attributeProperty, topic, onChangeMode); err != nil {
-        //       log.Errorf("client subscribe topic: %s [err:%s]", topic, err.Error())
-        //       return nil, err
-        //   }
-        //} else if topic == CommandTopicRequest {
-        //    //订阅平台命令
-        //    if err := s.CreateSubscribeEntity(owner, username, commandProperty, topic, realtimeMode); err != nil {
-        //        log.Errorf("client subscribe topic: %s [err:%s]", topic, err.Error())
-        //        return nil, err
-        //    }
-        //} else if topic == AttributesTopicResponse || topic == AttributesGatewayTopicResponse {
-        //    //边端获取平台属性值
-        //    //do nothing
-        //    log.Debugf("client subscribe topic %s", topic)
-        //} else if topic == RawDataTopic {
-        //    //边端订阅平台原始数据
-        //    if err := s.CreateSubscribeEntity(owner, username, rawDownProperty, topic, realtimeMode); err != nil {
-        //        log.Errorf("client subscribe topic: %s [err:%s]", topic, err.Error())
-        //        return nil, err
-        //    }
-        //} else {
-        //    return nil, errors.New("invalid topic")
-        //}
     }
     return &pb.EmptySuccess{}, nil
 }
