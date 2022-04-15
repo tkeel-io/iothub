@@ -444,10 +444,13 @@ func validSubTopic(topic string) bool {
 func getSubKeyFromTopic(tp string) string {
     switch tp {
     case RawDataTopic:
+        //return fmt.Sprintf("properties.%s", rawDataProperty)
         return rawDataProperty
     case AttributesTopic:
+        //return fmt.Sprintf("properties.%s", attributeProperty)
         return attributeProperty
     case AttributesGatewayTopic:
+        //return fmt.Sprintf("properties.%s", attributeProperty)
         return attributeProperty
     case DeviceDebugTopic:
         return "*"
@@ -760,8 +763,8 @@ func AddDefaultAuthHeader(req *http.Request) {
 
 // create SubscribeEntity
 func (s *HookService) CreateSubscribeEntity(owner, devId, itemType, subscriptionTopic, subscriptionMode string) error {
-    // md5(topic)
-    subId := fmt.Sprintf("sub-%x", md5.Sum([]byte(subscriptionTopic+itemType)))
+    // md5(devId+itemType)
+    subId := fmt.Sprintf("sub-%x", md5.Sum([]byte(devId+itemType)))
     //subId := fmt.Sprintf("%s%s", "sub-", GetUUID())
     subReq := &v1.SubscriptionObject{
         PubsubName: "iothub-pubsub",
