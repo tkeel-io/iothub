@@ -12,6 +12,7 @@ import (
     "strconv"
     "strings"
     "time"
+    "crypto/md5"
 
     "github.com/Shopify/sarama"
     cloudevents "github.com/cloudevents/sdk-go/v2"
@@ -772,8 +773,9 @@ func AddDefaultAuthHeader(req *http.Request) {
 
 // create SubscribeEntity
 func (s *HookService) CreateSubscribeEntity(owner, devId, itemType, subscriptionTopic, subscriptionMode string) error {
-    // hash(topic)
-    subId := fmt.Sprintf("%s%s", "sub-", GetUUID())
+    // md5(topic)
+    subId := fmt.Sprintf("sub-%x", md5.Sum([]byte(subscriptionTopic + itemType)))
+    //subId := fmt.Sprintf("%s%s", "sub-", GetUUID())
     subReq := &v1.SubscriptionObject{
         PubsubName: "iothub-pubsub",
         Topic:      "sub-core",
