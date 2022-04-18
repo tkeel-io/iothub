@@ -423,41 +423,6 @@ func (s *HookService) OnClientCheckAcl(ctx context.Context, in *pb.ClientCheckAc
     return &pb.ValuedResponse{}, nil
 }
 
-var _validSubTopics = map[string]struct{}{
-    DeviceDebugTopic:               {},
-    AttributesTopic:                {},
-    AttributesGatewayTopic:         {},
-    CommandTopicRequest:            {},
-    RawDataTopic:                   {},
-    AttributesTopicResponse:        {},
-    AttributesGatewayTopicResponse: {},
-}
-
-func validSubTopic(topic string) bool {
-    if _, ok := _validSubTopics[topic]; ok {
-        return true
-    }
-    return false
-}
-
-//
-func getSubKeyFromTopic(tp string) string {
-    switch tp {
-    case RawDataTopic:
-        //return fmt.Sprintf("properties.%s", rawDataProperty)
-        return rawDataProperty
-    case AttributesTopic:
-        //return fmt.Sprintf("properties.%s", attributeProperty)
-        return attributeProperty
-    case AttributesGatewayTopic:
-        //return fmt.Sprintf("properties.%s", attributeProperty)
-        return attributeProperty
-    case DeviceDebugTopic:
-        return "*"
-    }
-    return ""
-}
-
 func (s *HookService) OnClientSubscribe(ctx context.Context, in *pb.ClientSubscribeRequest) (*pb.EmptySuccess, error) {
     topics := in.GetTopicFilters()
     username := in.Clientinfo.GetUsername()
@@ -474,16 +439,10 @@ func (s *HookService) OnClientSubscribe(ctx context.Context, in *pb.ClientSubscr
             log.Errorf("invalid topic:%s username:%s", topic, username)
             return nil, errors.New("invalid topic")
         }
-        //
-        itemType := getSubKeyFromTopic(topic)
 
-        if itemType == "" {
-            log.Errorf("invalid itemType:%s username:%s", itemType, username)
-            return nil, errors.New("invalid itemType")
-        }
-
-        //itemType = "*"
+        itemType := "*"
         log.Debugf("client subscribe:%s itemType:%", owner, itemType)
+        // TODO: 优化逻辑
         if err := s.CreateSubscribeEntity(owner, username, itemType, topic, realtimeMode); err != nil {
             return nil, err
         }
@@ -492,38 +451,51 @@ func (s *HookService) OnClientSubscribe(ctx context.Context, in *pb.ClientSubscr
 }
 
 func (s *HookService) OnClientUnsubscribe(ctx context.Context, in *pb.ClientUnsubscribeRequest) (*pb.EmptySuccess, error) {
+    var (
+        err error
+    )
+    // TODO: 1. 删除对应的 topic
     topics := in.GetTopicFilters()
+    // tips: username == devId
     username := in.Clientinfo.GetUsername()
     for _, tf := range topics {
         topic := tf.GetName()
+        topic = buildTopic(username, topic)
         log.Debug("unSubscribe topic ", topic)
-        //get owner
-        owner, err := s.GetState(username + devEntitySuffixKey)
-        if err != nil {
-            return nil, err
+        if e := s.DeleteState(topic); nil != e {
+            log.Errorf("delete subscription id err, %v", e)
+            if err != nil {
+                err = e
+            }
         }
-        // get subscription Id
-        subId, err := s.GetState(topic)
-        if err != nil {
-            return nil, err
-        }
-        // delete topic Id
-        if err := s.DeleteState(topic); nil != err {
-            log.Errorf("delete topic id err, %v", err)
-            return nil, err
-        }
-
-        // 删除 core 订阅实体
-        if err := s.DeleteSubscribeEntity(string(owner), username, string(subId)); nil != err {
-            return nil, err
-        }
-        // delete subscription Id
-        if err := s.DeleteState(string(subId)); nil != err {
-            log.Errorf("delete subscription id err, %v", err)
-            return nil, err
-        }
+        ////get owner
+        //owner, err := s.GetState(username + devEntitySuffixKey)
+        //if err != nil {
+        //    return nil, err
+        //}
+        //// get subscription Id
+        //subId, err := s.GetState(topic)
+        //if err != nil {
+        //    return nil, err
+        //}
+        //// delete topic Id
+        //if err := s.DeleteState(topic); nil != err {
+        //    log.Errorf("delete topic id err, %v", err)
+        //    return nil, err
+        //}
+        //
+        //// 删除 core 订阅实体
+        //if err := s.DeleteSubscribeEntity(string(owner), username, string(subId)); nil != err {
+        //    return nil, err
+        //}
+        //// delete subscription Id
+        //if err := s.DeleteState(string(subId)); nil != err {
+        //    log.Errorf("delete subscription id err, %v", err)
+        //    return nil, err
+        //}
     }
-    return &pb.EmptySuccess{}, nil
+    // TODO: 2. 如果所有的 topic 都取消完了则删除设备在 core 里面的订阅
+    return &pb.EmptySuccess{}, err
 }
 
 func (s *HookService) OnSessionCreated(ctx context.Context, in *pb.SessionCreatedRequest) (*pb.EmptySuccess, error) {
@@ -764,6 +736,11 @@ func AddDefaultAuthHeader(req *http.Request) {
 // create SubscribeEntity
 func (s *HookService) CreateSubscribeEntity(owner, devId, itemType, subscriptionTopic, subscriptionMode string) error {
     // md5(devId+itemType)
+    // IoTHub 订阅 “*”
+    //
+    if itemType != "*" {
+        itemType = "*"
+    }
     subId := fmt.Sprintf("sub-%x", md5.Sum([]byte(devId+itemType)))
     //subId := fmt.Sprintf("%s%s", "sub-", GetUUID())
     subReq := &v1.SubscriptionObject{
@@ -788,7 +765,6 @@ func (s *HookService) CreateSubscribeEntity(owner, devId, itemType, subscription
     if err != nil {
         return err
     }
-
     req.Header.Add("Content-Type", "application/json")
     AddDefaultAuthHeader(req)
 
@@ -803,17 +779,27 @@ func (s *HookService) CreateSubscribeEntity(owner, devId, itemType, subscription
         log.Errorf("create subscription err, %v", err)
         return err
     }
-
+    // TODO: 保存订阅 subid 一个设备只会有一个 subId 然后由 iothub 区分同的 topic
+    if err := s.SaveState(subId, []byte(devId)); err != nil {
+        return err
+    }
+    // TODO: 关联deviceId 与 subId
+    if err := s.SaveState(devId, []byte(subId)); err != nil {
+        return err
+    }
+    // TODO: 保存订阅的 topic = deviceId/subscriptionTopic 取消订阅即是删除对应的 topic
+    tp := buildTopic(devId, subscriptionTopic)
     log.Debugf("create subscription ok, %v", res)
-    //save subId 保存必要的数据，收到 pubsub 时能够区分，执行对应的逻辑， subId-> topic
-    if err := s.SaveState(subId, []byte(subscriptionTopic)); err != nil {
+    // TODO: 保存设备订阅的 topic 一个设备可能会订阅多个 topic 所以这里使用 deviceId + topic 作为唯一key
+    if err := s.SaveState(tp, []byte("T")); err != nil {
         return err
     }
-    // save topic, 取消订阅时获取 topic-> subId
-    if err := s.SaveState(subscriptionTopic, []byte(subId)); err != nil {
-        return err
-    }
-    return s.SaveSubscriptionId(devId, subId)
+    return nil
+    //// save topic, 取消订阅时获取 topic-> subId
+    //if err := s.SaveState(subscriptionTopic, []byte(subId)); err != nil {
+    //    return err
+    //}
+    //return s.SaveSubscriptionId(devId, subId)
 }
 
 // 保存每一个设备的 subIds

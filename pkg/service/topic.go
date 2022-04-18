@@ -2,16 +2,38 @@ package service
 
 import (
     "context"
-    "encoding/base64"
-    "encoding/json"
-    "fmt"
-    "github.com/pkg/errors"
     pb "github.com/tkeel-io/iothub/api/iothub/v1"
     "github.com/tkeel-io/kit/log"
     "strings"
 
     "github.com/tidwall/gjson"
 )
+
+var _validSubTopics = map[string]string{
+    DeviceDebugTopic:       "-",
+    AttributesTopic:        "attributes",
+    CommandTopic:           "commands",
+    AttributesGatewayTopic: "attributes",
+    RawDataTopic:           "raw",
+}
+
+func validSubTopic(topic string) bool {
+    if _, ok := _validSubTopics[topic]; ok {
+        return true
+    }
+    return false
+}
+
+func getKeyFromTopic(topic string) (string, bool) {
+    if v, ok := _validSubTopics[topic]; ok {
+        return v, ok
+    }
+    return "", false
+}
+
+func subscribeTopics() []string {
+    return []string{AttributesTopic, AttributesGatewayTopic, RawDataTopic, CommandTopic}
+}
 
 type TopicService struct {
     pb.UnimplementedTopicServer
@@ -39,6 +61,18 @@ func NewTopicService(ctx context.Context, hookSvc *HookService) (*TopicService, 
     }, nil
 }
 
+func getValue(strReqJson, subType string) (bool, interface{}) {
+    jsonPath := strings.Join([]string{"properties", subType}, ".")
+    res := gjson.Get(strReqJson, jsonPath)
+    //
+    return res.IsObject(), res.Value()
+}
+
+//
+func buildTopic(devId, topic string, ) string {
+    return strings.Join([]string{devId, topic}, "/")
+}
+
 func (s *TopicService) TopicEventHandler(ctx context.Context, req *pb.TopicEventRequest) (out *pb.TopicEventResponse, err error) {
     log.Debugf("receive pubsub topic: %s, payload: %v", req.GetTopic(), req.GetData())
     //get subId
@@ -46,115 +80,30 @@ func (s *TopicService) TopicEventHandler(ctx context.Context, req *pb.TopicEvent
     if err != nil {
         return nil, err
     }
-
+    // TODO: 根据变化的内容确定发送到哪个 topic
     strReqJson := string(bys)
     devId := gjson.Get(strReqJson, "id").String()
-    subId := gjson.Get(strReqJson, "subscribe_id").String()
-
-    if len(devId) == 0 || len(subId) == 0 {
-        return nil, errors.New("invalid params")
+    // 合法的订阅 topic
+    topics := subscribeTopics()
+    for _, tp := range topics {
+        respTp := buildTopic(devId, tp)
+        if bys, err := s.hookSvc.GetState(respTp); err != nil || len(bys) == 0 {
+            log.Errorf("TopicEventHandler: topic=%s", respTp)
+            continue
+        }
+        // 根据从 core 来的消息处理不同的 topic
+        if ekey, ok := getKeyFromTopic(tp); ok && ekey != "" {
+            ok, v := getValue(strReqJson, ekey)
+            if !ok && v == nil {
+                continue
+            }
+            if err = Publish(devId, respTp, defaultDownStreamClientId, 0, false, v); err != nil {
+                log.Errorf("TopicEventHandler: topic=%s err=%v", respTp, err)
+            }
+        }
     }
-
-    subTopic, err := s.hookSvc.GetState(subId)
     if err != nil {
         return &pb.TopicEventResponse{Status: SubscriptionResponseStatusDrop}, err
     }
-    if nil != err {
-        log.Errorf("TopicEventHandler.GetState:devId=%s  err=%s", devId, err.Error())
-        return &pb.TopicEventResponse{Status: SubscriptionResponseStatusDrop}, err
-    }
-    //
-    strSubTopic := string(subTopic)
-    //ackTopic := devId + "/" + GetSubscriptionAckTopic(strSubTopic)
-    ackTopic := fmt.Sprintf("%s/%s", devId, strSubTopic)
-    // key in properties
-    keyOfProp := getSubKeyFromTopic(strSubTopic)
-    //
-    pathJson := "properties"
-    //
-    if keyOfProp != "*" {
-        pathJson = fmt.Sprintf("%s.%s", pathJson, keyOfProp)
-    }
-    //
-    payload := gjson.Get(strReqJson, pathJson).Map()
-    log.Debugf("TopicEventHandler: subId=%s pathJson=%s payload=%v ackTopic=%s", subId, pathJson, payload, ackTopic)
-    // publish(post) data to emq
-    if err := Publish(devId, ackTopic, defaultDownStreamClientId, 0, false, payload); nil != err {
-        log.Errorf("TopicEventHandler.Publish:devId=%s ackTopic=%s err=%s", devId, ackTopic, err.Error())
-        return &pb.TopicEventResponse{Status: SubscriptionResponseStatusDrop}, err
-    }
-
-    return &pb.TopicEventResponse{Status: SubscriptionResponseStatusSuccess}, nil
-
-    //var payload interface{}
-    //switch kv := req.Data.AsInterface().(type) {
-    //case map[string]interface{}:
-    //	switch kvv := kv["properties"].(type) {
-    //	case map[string]interface{}:
-    //		for k, v := range kvv {
-    //			log.Debugf("k: %s, v: %v", k, v)
-    //			if k == telemetryProperty || k == attributeProperty || k == commandProperty {
-    //				data := convertBase64ToMap(v.(string))
-    //				log.Debugf("k: %s, data: %v", k, data)
-    //				topic := data["topic"].(string)
-    //				username := getUserNameFromTopic(topic)
-    //				subId, err := s.hookSvc.GetState(username + subEntitySuffixKey)
-    //				if nil != err {
-    //					continue
-    //				}
-    //				payload = data["data"]
-    //				log.Infof("id: %s, subId: %s, payload: %v", id, subId, payload)
-    //				// publish(post) data to emq
-    //				if err := Publish(username, topic, defaultDownStreamClientId, 0, false, payload); nil != err {
-    //					return &pb.TopicEventResponse{Status: SubscriptionResponseStatusDrop}, err
-    //				}
-    //			} else {
-    //				log.Debugf("unused k: %v, v: %v", k, v)
-    //				return &pb.TopicEventResponse{Status: SubscriptionResponseStatusDrop}, nil
-    //			}
-    //		}
-    //
-    //	default:
-    //		return &pb.TopicEventResponse{Status: SubscriptionResponseStatusDrop}, nil
-    //	}
-    //
-    //default:
-    //	return &pb.TopicEventResponse{Status: SubscriptionResponseStatusDrop}, nil
-    //}
-    //return &pb.TopicEventResponse{Status: SubscriptionResponseStatusSuccess}, nil
-}
-
-// 根据设备端订阅的topic 获取 推送给相应响应设备的 topic
-func GetSubscriptionAckTopic(subscriptionTopic string) string {
-    var subscriptionAckTopic string
-    switch subscriptionTopic {
-
-    // 订阅平台属性变化
-    case AttributesTopic:
-        // 一般设备
-        subscriptionAckTopic = AttributesTopic
-    case AttributesGatewayTopic:
-        // 网关设备
-        subscriptionAckTopic = AttributesGatewayTopic
-
-    // 命令
-    case CommandTopicResponse:
-        // 命令 ack
-        requestId := ""
-        subscriptionAckTopic = strings.Replace(CommandTopicRequest, "+", requestId, 1)
-    }
-
-    return subscriptionAckTopic
-}
-
-func convertBase64ToMap(base64String string) map[string]interface{} {
-    var mapData map[string]interface{}
-
-    sDec, _ := base64.StdEncoding.DecodeString(base64String)
-
-    if err := json.Unmarshal(sDec, &mapData); nil != err {
-        log.Errorf("unmarshal err %s", err)
-        return nil
-    }
-    return mapData
+    return &pb.TopicEventResponse{Status: SubscriptionResponseStatusSuccess}, err
 }
