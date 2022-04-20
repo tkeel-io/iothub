@@ -66,6 +66,32 @@ const (
     _envKafkaService = `KAFKA_SERVICE`
 )
 
+/**
+  case username + "/" + AttributesTopic:
+      fallthrough
+  case username + "/" + AttributesGatewayTopic:
+      // 变短上传属性
+      propertyType = attributeProperty
+
+  case username + "/" + TelemetryTopic:
+      fallthrough
+  case username + "/" + TelemetryGatewayTopic:
+      // 边端上传遥测
+      propertyType = telemetryProperty
+  case username + "/" + CommandTopic:
+*/
+func propertyTypeFromTopic(topic string) string {
+    switch topic {
+    case AttributesTopic, AttributesGatewayTopic:
+        return attributeProperty
+    case TelemetryTopic, TelemetryGatewayTopic:
+        return telemetryProperty
+    case CommandTopicResponse:
+        return commandProperty
+    }
+    return ""
+}
+
 // HookService is used to implement emqx_exhook_v1.s *HookService.
 type HookService struct {
     pb.UnimplementedHookProviderServer
@@ -423,41 +449,6 @@ func (s *HookService) OnClientCheckAcl(ctx context.Context, in *pb.ClientCheckAc
     return &pb.ValuedResponse{}, nil
 }
 
-var _validSubTopics = map[string]struct{}{
-    DeviceDebugTopic:               {},
-    AttributesTopic:                {},
-    AttributesGatewayTopic:         {},
-    CommandTopicRequest:            {},
-    RawDataTopic:                   {},
-    AttributesTopicResponse:        {},
-    AttributesGatewayTopicResponse: {},
-}
-
-func validSubTopic(topic string) bool {
-    if _, ok := _validSubTopics[topic]; ok {
-        return true
-    }
-    return false
-}
-
-//
-func getSubKeyFromTopic(tp string) string {
-    switch tp {
-    case RawDataTopic:
-        //return fmt.Sprintf("properties.%s", rawDataProperty)
-        return rawDataProperty
-    case AttributesTopic:
-        //return fmt.Sprintf("properties.%s", attributeProperty)
-        return attributeProperty
-    case AttributesGatewayTopic:
-        //return fmt.Sprintf("properties.%s", attributeProperty)
-        return attributeProperty
-    case DeviceDebugTopic:
-        return "*"
-    }
-    return ""
-}
-
 func (s *HookService) OnClientSubscribe(ctx context.Context, in *pb.ClientSubscribeRequest) (*pb.EmptySuccess, error) {
     topics := in.GetTopicFilters()
     username := in.Clientinfo.GetUsername()
@@ -474,16 +465,10 @@ func (s *HookService) OnClientSubscribe(ctx context.Context, in *pb.ClientSubscr
             log.Errorf("invalid topic:%s username:%s", topic, username)
             return nil, errors.New("invalid topic")
         }
-        //
-        itemType := getSubKeyFromTopic(topic)
 
-        if itemType == "" {
-            log.Errorf("invalid itemType:%s username:%s", itemType, username)
-            return nil, errors.New("invalid itemType")
-        }
-
-        //itemType = "*"
+        itemType := "*"
         log.Debugf("client subscribe:%s itemType:%", owner, itemType)
+        // TODO: 优化逻辑
         if err := s.CreateSubscribeEntity(owner, username, itemType, topic, realtimeMode); err != nil {
             return nil, err
         }
@@ -492,38 +477,26 @@ func (s *HookService) OnClientSubscribe(ctx context.Context, in *pb.ClientSubscr
 }
 
 func (s *HookService) OnClientUnsubscribe(ctx context.Context, in *pb.ClientUnsubscribeRequest) (*pb.EmptySuccess, error) {
+    var (
+        err error
+    )
+    // TODO: 1. 删除对应的 topic
     topics := in.GetTopicFilters()
+    // tips: username == devId
     username := in.Clientinfo.GetUsername()
     for _, tf := range topics {
         topic := tf.GetName()
+        topic = buildTopic(username, topic)
         log.Debug("unSubscribe topic ", topic)
-        //get owner
-        owner, err := s.GetState(username + devEntitySuffixKey)
-        if err != nil {
-            return nil, err
-        }
-        // get subscription Id
-        subId, err := s.GetState(topic)
-        if err != nil {
-            return nil, err
-        }
-        // delete topic Id
-        if err := s.DeleteState(topic); nil != err {
-            log.Errorf("delete topic id err, %v", err)
-            return nil, err
-        }
-
-        // 删除 core 订阅实体
-        if err := s.DeleteSubscribeEntity(string(owner), username, string(subId)); nil != err {
-            return nil, err
-        }
-        // delete subscription Id
-        if err := s.DeleteState(string(subId)); nil != err {
-            log.Errorf("delete subscription id err, %v", err)
-            return nil, err
+        if e := s.DeleteState(topic); nil != e {
+            log.Errorf("delete subscription id err, %v", e)
+            if err != nil {
+                err = e
+            }
         }
     }
-    return &pb.EmptySuccess{}, nil
+    // TODO: 2. 如果所有的 topic 都取消完了则删除设备在 core 里面的订阅
+    return &pb.EmptySuccess{}, err
 }
 
 func (s *HookService) OnSessionCreated(ctx context.Context, in *pb.SessionCreatedRequest) (*pb.EmptySuccess, error) {
@@ -616,11 +589,20 @@ func toCloudEventData(data interface{}) ([]byte, error) {
     return jsoniter.Marshal(m)
 }
 
+func topicFromUserNameTopic(userNameTopic string) string {
+    vv := strings.SplitN(userNameTopic, "/", 2)
+    if len(vv) > 0 {
+        return vv[1]
+    }
+    return ""
+}
+
 func (s *HookService) OnMessagePublish(ctx context.Context, in *pb.MessagePublishRequest) (*pb.ValuedResponse, error) {
     res := &pb.ValuedResponse{}
     res.Type = pb.ValuedResponse_STOP_AND_RETURN
     res.Value = &pb.ValuedResponse_BoolResult{BoolResult: false}
     //do nothing when receive tkeel attribute/telemetry/command event.
+    // 下行数据直接返回
     if in.Message.From == defaultDownStreamClientId {
         log.Debugf("downstream data: %v", in.GetMessage())
         res.Value = &pb.ValuedResponse_BoolResult{BoolResult: true}
@@ -639,9 +621,13 @@ func (s *HookService) OnMessagePublish(ctx context.Context, in *pb.MessagePublis
     data["owner"] = string(owner)
     data["type"] = "device"
     data["source"] = "iothub"
-    topic := in.GetMessage().Topic
+    // username = deviceId
+    // 此处topic为 user/topic
+    userNameTopic := in.GetMessage().Topic
+
     payloadBytes := in.GetMessage().GetPayload()
-    log.Infof("receive topic: %s payload: %s", topic, string(payloadBytes))
+    log.Infof("receive topic: %s payload: %s", userNameTopic, string(payloadBytes))
+
     /*
     	{
     	   "id": "device_123",
@@ -656,71 +642,19 @@ func (s *HookService) OnMessagePublish(ctx context.Context, in *pb.MessagePublis
     	}
     */
 
-    // 获取平台属性值
-    if strings.HasPrefix(topic, username+"/"+AttributesTopicRequest) {
-        // 一般设备
-        log.Infof("receive attribute requests payload %s", string(payloadBytes))
-        // todo 获取 payload keys, 向 core 查询 属性值， 返回给边端
-        mapData := make(map[string]interface{})
-        // {"clientKeys":"attribute1,attribute2", "sharedKeys":"shared1,shared2"} // tb payload
-        // {“keys”: "attribute1,attribute2"}
-
-        requestId := strings.Split(topic, username+"/"+AttributesTopicRequest)[0]
-        ackTopic := strings.Replace(AttributesTopicResponse, "+", requestId, 1)
-        if err := Publish(username, ackTopic, defaultDownStreamClientId, 0, false, mapData); nil != err {
-            return nil, err
-        }
-
+    topic := topicFromUserNameTopic(userNameTopic)
+    if topic == "" {
         res.Value = &pb.ValuedResponse_BoolResult{BoolResult: true}
-        return res, nil
-    } else if topic == AttributesGatewayTopicRequest {
-        // 网关设备
-        mapData := make(map[string]interface{})
-        //device := mapData["device"].(string)
-        //attributeKey := mapData["key"].(string)
-        ////todo: 向 core 查询 属性值， 返回给边端
-        //mapData["value"] := GetAttributes(device, attributeKey)
-
-        delete(mapData, "key")
-        ackTopic := AttributesGatewayTopicResponse
-        if err := Publish(username, ackTopic, defaultDownStreamClientId, 0, false, mapData); nil != err {
-            return nil, err
-        }
-
-        res.Value = &pb.ValuedResponse_BoolResult{BoolResult: true}
-        return res, nil
     }
 
-    var propertyType string
-    switch topic {
-    case username + "/" + AttributesTopic:
-        fallthrough
-    case username + "/" + AttributesGatewayTopic:
-        // 变短上传属性
-        propertyType = attributeProperty
-
-    case username + "/" + TelemetryTopic:
-        fallthrough
-    case username + "/" + TelemetryGatewayTopic:
-        // 边端上传遥测
-        propertyType = telemetryProperty
-
-    case username + "/" + CommandTopicResponse:
-        // 边缘端命令 response
-        log.Infof("receive command response payload %s", string(payloadBytes))
-        // todo 返回一般的 cmd ack 给到 tkeel-device or other application
-        res.Value = &pb.ValuedResponse_BoolResult{BoolResult: true}
-        return res, nil
-
-    default:
-        propertyType = rawDataProperty
-    }
+    propertyType := propertyTypeFromTopic(topic)
+    // TODO: propertyType check
     md := map[string]interface{}{
         rawDataProperty: map[string]interface{}{
             "id":     username,
             "ts":     GetTime(),
             "values": payloadBytes,
-            "path":   topic,
+            "path":   userNameTopic,
             "type":   propertyType,
             "mark":   MarkUpStream,
         },
@@ -764,6 +698,11 @@ func AddDefaultAuthHeader(req *http.Request) {
 // create SubscribeEntity
 func (s *HookService) CreateSubscribeEntity(owner, devId, itemType, subscriptionTopic, subscriptionMode string) error {
     // md5(devId+itemType)
+    // IoTHub 订阅 “*”
+    //
+    if itemType != "*" {
+        itemType = "*"
+    }
     subId := fmt.Sprintf("sub-%x", md5.Sum([]byte(devId+itemType)))
     //subId := fmt.Sprintf("%s%s", "sub-", GetUUID())
     subReq := &v1.SubscriptionObject{
@@ -788,7 +727,6 @@ func (s *HookService) CreateSubscribeEntity(owner, devId, itemType, subscription
     if err != nil {
         return err
     }
-
     req.Header.Add("Content-Type", "application/json")
     AddDefaultAuthHeader(req)
 
@@ -804,16 +742,25 @@ func (s *HookService) CreateSubscribeEntity(owner, devId, itemType, subscription
         return err
     }
 
+    // TODO: 保存订阅 subid 一个设备只会有一个 subId 然后由 iothub 区分同的 topic
+    if err := s.SaveState(subId, []byte(devId)); err != nil {
+        return err
+    }
+
+    // TODO: 关联deviceId 与 subId
+    if err := s.SaveState(devId, []byte(subId)); err != nil {
+        return err
+    }
+    // TODO: 保存订阅的 topic = deviceId/subscriptionTopic 取消订阅即是删除对应的 topic
+    // TODO: 保存设备订阅的 topic 一个设备可能会订阅多个 topic 所以这里使用 deviceId + topic 作为唯一key
+
+    tp := buildTopic(devId, subscriptionTopic)
     log.Debugf("create subscription ok, %v", res)
-    //save subId 保存必要的数据，收到 pubsub 时能够区分，执行对应的逻辑， subId-> topic
-    if err := s.SaveState(subId, []byte(subscriptionTopic)); err != nil {
+    if err := s.SaveState(tp, []byte("T")); err != nil {
         return err
     }
-    // save topic, 取消订阅时获取 topic-> subId
-    if err := s.SaveState(subscriptionTopic, []byte(subId)); err != nil {
-        return err
-    }
-    return s.SaveSubscriptionId(devId, subId)
+
+    return nil
 }
 
 // 保存每一个设备的 subIds
