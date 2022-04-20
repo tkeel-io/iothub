@@ -2,6 +2,7 @@ package service
 
 import (
     "context"
+    "encoding/json"
     pb "github.com/tkeel-io/iothub/api/iothub/v1"
     "github.com/tkeel-io/kit/log"
     "strings"
@@ -9,30 +10,26 @@ import (
     "github.com/tidwall/gjson"
 )
 
-var _validSubTopics = map[string]string{
+var _validTopics = map[string]string{
     DeviceDebugTopic:       "-",
-    AttributesTopic:        "attributes",
-    CommandTopic:           "commands",
-    AttributesGatewayTopic: "attributes",
-    RawDataTopic:           "raw",
+    AttributesTopic:        _attrPropPath,
+    CommandTopic:           _cmdPropPath,
+    AttributesGatewayTopic: _attrPropPath,
+    RawDataTopic:           _rawPropPath,
 }
 
 func validSubTopic(topic string) bool {
-    if _, ok := _validSubTopics[topic]; ok {
+    if _, ok := _validTopics[topic]; ok {
         return true
     }
     return false
 }
 
 func getKeyFromTopic(topic string) (string, bool) {
-    if v, ok := _validSubTopics[topic]; ok {
+    if v, ok := _validTopics[topic]; ok {
         return v, ok
     }
     return "", false
-}
-
-func subscribeTopics() []string {
-    return []string{AttributesTopic, AttributesGatewayTopic, RawDataTopic, CommandTopic}
 }
 
 type TopicService struct {
@@ -61,11 +58,10 @@ func NewTopicService(ctx context.Context, hookSvc *HookService) (*TopicService, 
     }, nil
 }
 
-func getValue(strReqJson, subType string) (bool, interface{}) {
-    jsonPath := strings.Join([]string{"properties", subType}, ".")
-    res := gjson.Get(strReqJson, jsonPath)
+func getValue(strReqJson string, subTypePath string) (bool, interface{}) {
+    res := gjson.Get(strReqJson, subTypePath)
     //
-    return res.IsObject(), res.Value()
+    return res.Exists(), res.Value()
 }
 
 //
@@ -73,37 +69,75 @@ func buildTopic(devId, topic string, ) string {
     return strings.Join([]string{devId, topic}, "/")
 }
 
+//
+const (
+    _cmdPropPath  = `properties.commands`
+    _attrPropPath = `properties.attributes`
+    _rawPropPath  = `properties.raw`
+)
+
+/**
+const DeviceDebugTopic = "v1/devices/debug"
+const RawDataTopic string = "v1/devices/me/raw"
+const CommandTopic string = "v1/devices/me/commands"
+const AttributesTopic string = "v1/devices/me/attributes"
+const AttributesGatewayTopic = "v1/gateway/attributes"
+*/
+func getTopicFromCoreReq(strReqJson string) string {
+    if ok, v := getValue(strReqJson, _cmdPropPath); ok {
+        b, err := json.Marshal(v)
+        if err != nil {
+            return ""
+        }
+        s := string(b)
+        if strings.Contains(s, "input") {
+            return CommandTopic
+        }
+        if strings.Contains(s, "output") {
+            return CommandTopicResponse
+        }
+        return ""
+    }
+    //
+    if ok, _ := getValue(strReqJson, _attrPropPath); ok {
+        return AttributesTopic
+    }
+    //
+    return ""
+}
+
+//
 func (s *TopicService) TopicEventHandler(ctx context.Context, req *pb.TopicEventRequest) (out *pb.TopicEventResponse, err error) {
     log.Debugf("receive pubsub topic: %s, payload: %v", req.GetTopic(), req.GetData())
-    //get subId
+
     bys, err := req.Data.MarshalJSON()
     if err != nil {
         return nil, err
     }
+    log.Debugf("receive pubsub topic: %s, payload: %v", req.GetTopic(), string(bys))
     // TODO: 根据变化的内容确定发送到哪个 topic
     strReqJson := string(bys)
     devId := gjson.Get(strReqJson, "id").String()
-    // 合法的订阅 topic
-    topics := subscribeTopics()
-    for _, tp := range topics {
-        respTp := buildTopic(devId, tp)
-        if bys, err := s.hookSvc.GetState(respTp); err != nil || len(bys) == 0 {
-            log.Errorf("TopicEventHandler: topic=%s", respTp)
-            continue
+
+    // TODO: topic 验证
+    topic := getTopicFromCoreReq(strReqJson)
+
+    if !validSubTopic(topic) {
+        return &pb.TopicEventResponse{Status: SubscriptionResponseStatusSuccess}, err
+    }
+
+    // 根据从 core 来的消息处理不同的 topic
+    if propPath, ok := getKeyFromTopic(topic); ok && propPath != "" {
+        ok, v := getValue(strReqJson, propPath)
+        if !ok || v == nil {
+            return &pb.TopicEventResponse{Status: SubscriptionResponseStatusDrop}, err
         }
-        // 根据从 core 来的消息处理不同的 topic
-        if ekey, ok := getKeyFromTopic(tp); ok && ekey != "" {
-            ok, v := getValue(strReqJson, ekey)
-            if !ok && v == nil {
-                continue
-            }
-            if err = Publish(devId, respTp, defaultDownStreamClientId, 0, false, v); err != nil {
-                log.Errorf("TopicEventHandler: topic=%s err=%v", respTp, err)
-            }
+        userNameTopic := buildTopic(devId, topic)
+        if err = Publish(devId, userNameTopic, defaultDownStreamClientId, 0, false, v); err != nil {
+            log.Errorf("TopicEventHandler: topic=%s err=%v", userNameTopic, err)
+            return &pb.TopicEventResponse{Status: SubscriptionResponseStatusSuccess}, err
         }
     }
-    if err != nil {
-        return &pb.TopicEventResponse{Status: SubscriptionResponseStatusDrop}, err
-    }
-    return &pb.TopicEventResponse{Status: SubscriptionResponseStatusSuccess}, err
+
+    return &pb.TopicEventResponse{Status: SubscriptionResponseStatusDrop}, err
 }
