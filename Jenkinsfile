@@ -118,7 +118,7 @@ pipeline {
                         sh 'wget -q https://raw.githubusercontent.com/tkeel-io/cli/master/install/install.sh -O - | /bin/bash'
                         sh 'tkeel admin login -p changeme'
                         sh 'sleep 1m'
-                        sh 'tkeel plugin upgrade lunz1207/$APP_NAME@$HELM_CHART_VERSION $APP_NAME'
+                        sh 'tkeel plugin upgrade $GITHUB_ORG/$APP_NAME@$HELM_CHART_VERSION $APP_NAME'
                     }                
                 }
             }
@@ -132,10 +132,6 @@ pipeline {
                 container ('nodejs') {
                   withCredentials([usernamePassword(credentialsId: "$GITHUB_CREDENTIAL_ID", passwordVariable: 'GIT_PASSWORD', usernameVariable: 'GIT_USERNAME')]) {
                         sh 'echo this is a test'
-                        // sh 'mkdir -p $API_TESTS'
-                        // sh 'git clone https://$GIT_USERNAME:$GIT_PASSWORD@github.com/tkeel-io/tests.git $API_TESTS'
-                        // sh 'cd $API_TESTS && npm install'
-                        // sh 'cd $API_TESTS && npm run test /tests/device'
                     }
                 }
             }
