@@ -73,7 +73,7 @@ func buildTopic(devId, topic string, ) string {
 const (
     _cmdPropPath  = `properties.commands`
     _attrPropPath = `properties.attributes`
-    _rawPropPath  = `properties.raw`
+    _rawPropPath  = `properties.rawDown`
 )
 
 /**
@@ -101,6 +101,10 @@ func getTopicFromCoreReq(strReqJson string) string {
     //
     if ok, _ := getValue(strReqJson, _attrPropPath); ok {
         return AttributesTopic
+    }
+    //
+    if ok, _ := getValue(strReqJson, _rawPropPath); ok {
+        return RawDataTopic
     }
     //
     return ""
