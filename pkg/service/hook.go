@@ -190,6 +190,7 @@ func (s *HookService) OnClientConnack(ctx context.Context, in *pb.ClientConnackR
 
 func (s *HookService) OnClientConnected(ctx context.Context, in *pb.ClientConnectedRequest) (*pb.EmptySuccess, error) {
     log.Debugf("clientInfo %v", in.GetClientinfo())
+    ts := time.Now().UnixMilli()
     username := GetUsername(in.Clientinfo)
     ci := &ConnectInfo{
         ClientID:   in.Clientinfo.Clientid,
@@ -208,7 +209,7 @@ func (s *HookService) OnClientConnected(ctx context.Context, in *pb.ClientConnec
         //connectInfoProperty: *ci,
         rawDataProperty: map[string]interface{}{
             "id":     username,
-            "ts":     GetTime(),
+            "ts":     ts,
             "values": v,
             "path":   "",
             "type":   connectInfoProperty,
@@ -248,6 +249,7 @@ func (s *HookService) OnClientConnected(ctx context.Context, in *pb.ClientConnec
 
 func (s *HookService) OnClientDisconnected(ctx context.Context, in *pb.ClientDisconnectedRequest) (*pb.EmptySuccess, error) {
     username := GetUsername(in.Clientinfo)
+    ts := time.Now().UnixMilli()
     ci := &ConnectInfo{
         ClientID:   "",
         UserName:   "",
@@ -255,7 +257,7 @@ func (s *HookService) OnClientDisconnected(ctx context.Context, in *pb.ClientDis
         Protocol:   "",
         SocketPort: "",
         Online:     false,
-        Timestamp:  time.Now().UnixMilli(),
+        Timestamp:  ts,
     }
     v, err := EncodeData(*ci)
     if err != nil {
@@ -265,7 +267,7 @@ func (s *HookService) OnClientDisconnected(ctx context.Context, in *pb.ClientDis
         //connectInfoProperty: *ci,
         rawDataProperty: map[string]interface{}{
             "id":     username,
-            "ts":     GetTime(),
+            "ts":     ts,
             "values": v,
             "path":   "",
             "type":   connectInfoProperty,
@@ -527,27 +529,6 @@ func (s *HookService) OnSessionTerminated(ctx context.Context, in *pb.SessionTer
     return &pb.EmptySuccess{}, nil
 }
 
-// get time
-func GetTime() int64 {
-    return time.Now().UnixNano()
-}
-
-// generate uuid
-func GetUUID() string {
-    id := uuid.New()
-    return id.String()
-}
-
-//get decode data
-func DecodeData(rawData []byte) (interface{}, error) {
-    var data interface{}
-    err := json.Unmarshal(rawData, &data)
-    if nil != err {
-        return "", err
-    }
-    return data, nil
-}
-
 // encode data
 func EncodeData(jsonData interface{}) ([]byte, error) {
     byteData, err := json.Marshal(jsonData)
@@ -649,10 +630,11 @@ func (s *HookService) OnMessagePublish(ctx context.Context, in *pb.MessagePublis
 
     propertyType := propertyTypeFromTopic(topic)
     // TODO: propertyType check
+    ts := time.Now().UnixMilli()
     md := map[string]interface{}{
         rawDataProperty: map[string]interface{}{
             "id":     username,
-            "ts":     GetTime(),
+            "ts":     ts,
             "values": payloadBytes,
             "path":   userNameTopic,
             "type":   propertyType,
