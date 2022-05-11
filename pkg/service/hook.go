@@ -363,10 +363,12 @@ func (s *HookService) parseToken(password string) (*TokenValidResponse, error) {
     if err != nil {
         return nil, err
     }
+
+    defer resp.Body.Close()
+
     if resp.StatusCode != 200 {
         return nil, errors.New("Invalid StatusCode " + resp.Status)
     }
-    defer resp.Body.Close()
 
     body, err := ioutil.ReadAll(resp.Body)
     if err != nil {
@@ -652,6 +654,7 @@ func (s *HookService) OnMessagePublish(ctx context.Context, in *pb.MessagePublis
         Value: sarama.ByteEncoder(dd),
         Key:   sarama.StringEncoder(username),
     }
+    log.Debug("OnMessagePublish", data)
     //if err := s.daprClient.PublishEvent(context.Background(), "iothub-pubsub", s.corePubTopic, data); err != nil {
     //	log.Error(err)
     //	return res, nil
