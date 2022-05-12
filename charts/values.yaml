@@ -5,7 +5,8 @@
 replicaCount: 1
 
 image:
-  repository: tkeelio/iothub
+  registry: harbor.wuxs.vip:30003
+  repository: tkeel-io/iothub
   pullPolicy: Always
   # Overrides the image tag whose default is the chart appVersion.
   # tag: "0.4.2.alpha"
