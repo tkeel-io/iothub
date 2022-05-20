@@ -20,6 +20,7 @@ import (
     "github.com/google/uuid"
     jsoniter "github.com/json-iterator/go"
     "github.com/pkg/errors"
+    "github.com/prometheus/client_golang/prometheus"
     v1 "github.com/tkeel-io/core/api/core/v1"
     pb "github.com/tkeel-io/iothub/protobuf"
     "github.com/tkeel-io/kit/log"
@@ -66,12 +67,11 @@ const (
     _envKafkaService = `KAFKA_SERVICE`
 )
 
-
 func propertyTypeFromTopic(topic string) string {
     switch topic {
-    case AttributesTopic, AttributesGatewayTopic:
+    case AttributesTopic:
         return attributeProperty
-    case TelemetryTopic, TelemetryGatewayTopic:
+    case TelemetryTopic:
         return telemetryProperty
     case CommandTopicResponse:
         return commandProperty
@@ -91,6 +91,13 @@ type HookService struct {
     producer        sarama.AsyncProducer
     // the topic pub to core
     corePubTopic string
+    // metrics
+    collector *Collector
+}
+
+type Collector struct {
+    msgTotal *prometheus.CounterVec
+    devTotal *prometheus.GaugeVec
 }
 
 func NewHookService(client dapr.Client) *HookService {
@@ -119,10 +126,36 @@ func NewHookService(client dapr.Client) *HookService {
         }
     }(p)
     //
+    msgReq := prometheus.NewCounterVec(
+        prometheus.CounterOpts{
+            Name: "iothub_msg_total",
+            Help: "How many msg requests processed, partitioned by direction and tenant.",
+        },
+        []string{"tenant", "direction"},
+    )
+    //
+    prometheus.MustRegister(msgReq)
+    //
+    devTotal := prometheus.NewGaugeVec(
+        prometheus.GaugeOpts{
+            Subsystem: "runtime",
+            Name:      "dev_online_total",
+            Help:      "Number of goroutines that currently exist.",
+        },
+        []string{"tenant"},
+    )
+    prometheus.MustRegister(devTotal)
+    // create metrics
+    mc := &Collector{
+        msgTotal: msgReq,
+        devTotal: devTotal,
+    }
+    //
     return &HookService{
         daprClient:   client,
         producer:     p,
         corePubTopic: envWithDefault(_envCorePubTopic, "core-pub"),
+        collector:    mc,
     }
 }
 
@@ -206,10 +239,13 @@ func (s *HookService) OnClientConnected(ctx context.Context, in *pb.ClientConnec
     if err != nil {
         return nil, err
     }
-
+    sw := string(owner)
+    // metrics
+    s.collector.devTotal.WithLabelValues(sw).Add(1)
+    //
     data := map[string]interface{}{
         "id":     username,
-        "owner":  string(owner),
+        "owner":  sw,
         "type":   "device",
         "source": "iothub",
         "data":   infoMap,
@@ -261,12 +297,15 @@ func (s *HookService) OnClientDisconnected(ctx context.Context, in *pb.ClientDis
     }
     // get owner
     owner, err := s.GetState(username + devEntitySuffixKey)
+    // add metrics
+    sw := string(owner)
+    s.collector.devTotal.WithLabelValues(sw).Add(-1)
     if err != nil {
         return nil, err
     }
     data := map[string]interface{}{
         "id":     username,
-        "owner":  string(owner),
+        "owner":  sw,
         "type":   "device",
         "source": "iothub",
         "data":   infoMap,
@@ -569,14 +608,6 @@ func (s *HookService) OnMessagePublish(ctx context.Context, in *pb.MessagePublis
     res := &pb.ValuedResponse{}
     res.Type = pb.ValuedResponse_STOP_AND_RETURN
     res.Value = &pb.ValuedResponse_BoolResult{BoolResult: false}
-    //do nothing when receive tkeel attribute/telemetry/command event.
-    // 下行数据直接返回
-    if in.Message.From == defaultDownStreamClientId {
-        log.Debugf("downstream data: %v", in.GetMessage())
-        res.Value = &pb.ValuedResponse_BoolResult{BoolResult: true}
-        return res, nil
-    }
-
     username := getUserNameFromTopic(in.Message.Topic)
     //get owner
     owner, err := s.GetState(username + devEntitySuffixKey)
@@ -584,6 +615,19 @@ func (s *HookService) OnMessagePublish(ctx context.Context, in *pb.MessagePublis
     if err != nil {
         return nil, err
     }
+    sw := string(owner)
+    //do nothing when receive tkeel attribute/telemetry/command event.
+    // 下行数据直接返回
+    // add metrics
+    if in.Message.From == defaultDownStreamClientId {
+        s.collector.msgTotal.WithLabelValues(sw, MarkDownStream).Add(1)
+        log.Debugf("downstream data: %v", in.GetMessage())
+        res.Value = &pb.ValuedResponse_BoolResult{BoolResult: true}
+        return res, nil
+    }
+    //
+    s.collector.msgTotal.WithLabelValues(sw, MarkUpStream).Add(1)
+    //
     data := make(map[string]interface{})
     data["id"] = username
     data["owner"] = string(owner)

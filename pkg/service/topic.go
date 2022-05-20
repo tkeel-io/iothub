@@ -14,7 +14,6 @@ var _validTopics = map[string]string{
     DeviceDebugTopic:       "-",
     AttributesTopic:        _attrPropPath,
     CommandTopic:           _cmdPropPath,
-    AttributesGatewayTopic: _attrPropPath,
     RawDataTopic:           _rawPropPath,
 }
 
