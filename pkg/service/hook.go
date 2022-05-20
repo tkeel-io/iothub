@@ -66,20 +66,7 @@ const (
     _envKafkaService = `KAFKA_SERVICE`
 )
 
-/**
-  case username + "/" + AttributesTopic:
-      fallthrough
-  case username + "/" + AttributesGatewayTopic:
-      // 变短上传属性
-      propertyType = attributeProperty
 
-  case username + "/" + TelemetryTopic:
-      fallthrough
-  case username + "/" + TelemetryGatewayTopic:
-      // 边端上传遥测
-      propertyType = telemetryProperty
-  case username + "/" + CommandTopic:
-*/
 func propertyTypeFromTopic(topic string) string {
     switch topic {
     case AttributesTopic, AttributesGatewayTopic:
@@ -110,8 +97,6 @@ func NewHookService(client dapr.Client) *HookService {
     config := sarama.NewConfig()
     config.Producer.Return.Successes = true
     config.Producer.Return.Errors = true
-    //address := []string{"kafka.keel-system.svc.cluster.local:9092"}
-    //address := []string{"tkeel-middleware-kafka-headless:9092"}
     ad := envWithDefault(_envKafkaService, `kafka.keel-system.svc.cluster.local:9092`)
     ads := strings.Split(ad, ";")
     p, err := sarama.NewAsyncProducer(ads, config)
