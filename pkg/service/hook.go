@@ -97,7 +97,7 @@ type HookService struct {
 
 type Collector struct {
     msgTotal *prometheus.CounterVec
-    devTotal *prometheus.GaugeVec
+    connectedTotal *prometheus.GaugeVec
 }
 
 func NewHookService(client dapr.Client) *HookService {
@@ -136,19 +136,19 @@ func NewHookService(client dapr.Client) *HookService {
     //
     prometheus.MustRegister(msgReq)
     //
-    devTotal := prometheus.NewGaugeVec(
+    connectedTotal := prometheus.NewGaugeVec(
         prometheus.GaugeOpts{
             Subsystem: "runtime",
-            Name:      "dev_online_total",
+            Name:      "iothub_connected_total",
             Help:      "Number of goroutines that currently exist.",
         },
         []string{"tenant"},
     )
-    prometheus.MustRegister(devTotal)
+    prometheus.MustRegister(connectedTotal)
     // create metrics
     mc := &Collector{
         msgTotal: msgReq,
-        devTotal: devTotal,
+        connectedTotal: connectedTotal,
     }
     //
     return &HookService{
@@ -241,7 +241,7 @@ func (s *HookService) OnClientConnected(ctx context.Context, in *pb.ClientConnec
     }
     sw := string(owner)
     // metrics
-    s.collector.devTotal.WithLabelValues(sw).Add(1)
+    s.collector.connectedTotal.WithLabelValues(sw).Add(1)
     //
     data := map[string]interface{}{
         "id":     username,
@@ -299,7 +299,7 @@ func (s *HookService) OnClientDisconnected(ctx context.Context, in *pb.ClientDis
     owner, err := s.GetState(username + devEntitySuffixKey)
     // add metrics
     sw := string(owner)
-    s.collector.devTotal.WithLabelValues(sw).Add(-1)
+    s.collector.connectedTotal.WithLabelValues(sw).Add(-1)
     if err != nil {
         return nil, err
     }
