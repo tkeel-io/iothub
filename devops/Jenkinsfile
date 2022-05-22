@@ -5,32 +5,32 @@ pipeline {
     }
   }
     parameters {
-        string(name:'MANUAL_DEPLOY',defaultValue: 'no',description:'是否')
+        string(name:'MANUAL_DEPLOY',defaultValue: 'no',description:'yes or no')
 
-        string(name:'REGISTRY',defaultValue: 'harbor.wuxs.vip:30003',description:'组织')
-        string(name:'REPOSITORY',defaultValue: 'tkeel-io',description:'仓库')
+        string(name:'REGISTRY',defaultValue: 'harbor.wuxs.vip:30003',description:'REGISTRY')
+        string(name:'REPOSITORY',defaultValue: 'tkeel-io',description:'REPOSITORY')
 
-        string(name:'DOCKER_IMAGE_TAG',defaultValue: '0.1.0',description:'镜像版本')
-        string(name:'HELM_CHART_VERSION',defaultValue: '0.1.0',description:'插件版本')
+        string(name:'DOCKER_IMAGE_TAG',defaultValue: '0.1.0',description:'docker image tag')
+        string(name:'HELM_CHART_VERSION',defaultValue: '0.1.0',description:'plugin version')
 
     }
 
     environment {
         /*
-        tips:应用变量
+        tips:app env
         */
         APP_NAME = 'iothub'
         CHART_PATH = 'charts'
         DOCKERFILES_PATH = 'Dockerfile'
         
         /*
-        凭证信息
+        CREDENTIAL
         */
         PRIVATE_REPO_CREDENTIAL_ID = 'harbor'
         KUBECONFIG_CREDENTIAL_ID = 'kubeconfig'
 
         /*
-        配置,从凭证中读取
+        config form CREDENTIAL
         */
         PRIVATE_REPO_CONFIG = 'private-repo'
         PLUGIN_CONFIG = 'tkeel-plugin-config'
@@ -45,7 +45,7 @@ pipeline {
 
         stage('get config'){
             /*
-            从凭证中读取配置
+            get form CREDENTIAL
             */
             steps {
                 container ('python'){
@@ -83,18 +83,25 @@ pipeline {
                     script {
                         if (params.MANUAL_DEPLOY == "yes"){
                             /*
-                            重写 REGISTRY & REPOSITORY
+                            overwrite REGISTRY & REPOSITORY
                             */
                             env.REGISTRY = params.REGISTRY
                             env.REPOSITORY = params.REPOSITORY
+
+                            /*
+                            new Docker tag & chart version
+                            */
                             env.DOCKER_IMAGE_TAG = params.DOCKER_IMAGE_TAG
-                            env.DOCKER = env.REGISTRY + "/" + env.REPOSITORY + "/" + env.APP_NAME  + ":" + env.DOCKER_IMAGE_TAG
+                            env.DOCKER = "${env.REGISTRY}/${env.REPOSITORY}/${env.APP_NAME}:${env.DOCKER_IMAGE_TAG}"
                             env.CHART = params.HELM_CHART_VERSION
-                            env.TKEEL_PLUGIN_ENABLE_UPGRADE = 'yes'
+
                         }else{
+                            /*
+                            Docker tag & chart version
+                            */
                             env.DOCKER_IMAGE_TAG = env.COMMIT_ID
-                            env.DOCKER =  env.REGISTRY + "/" + env.REPOSITORY + "/" + env.APP_NAME  + ":" + env.DOCKER_IMAGE_TAG
-                            env.CHART = env.TIMESTAMP
+                            env.DOCKER = "${env.REGISTRY}/${env.REPOSITORY}/${env.APP_NAME}:${env.DOCKER_IMAGE_TAG}"
+                            env.CHART = "${env.TIMESTAMP.trim()}-${env.BRANCH_NAME}"
                         }
                     }
                 }
@@ -104,37 +111,32 @@ pipeline {
         stage('build & push') {
             environment {
                 /*
-                helm 环境变量
+                helm env
                 */
                 HELM_EXPERIMENTAL_OCI=1
             }
             steps {
                 container ('python') {
-
                     script{
-                        if(params.TKEEL_PLUGIN_ENABLE_UPGRADE == "no"){
-                            sh 'echo do nothing'                            
-                        }else{
-                            /*
-                            edit chart
-                            */
-                            env.values_repository = env.REGISTRY + "/" + env.REPOSITORY + "/" + env.APP_NAME
-                            sh 'python3 devops/scripts/kotb.py write charts/values.yaml charts/values.yaml $values_repository'
+                        /*
+                        edit chart
+                        */
+                        env.new_repository = "${env.REGISTRY}/${env.REPOSITORY}/${env.APP_NAME}"
+                        sh 'python3 devops/scripts/kotb.py write charts/values.yaml charts/values.yaml $new_repository'
 
-                            /*
-                            package helm chart
-                            */
-                            sh 'helm3 registry login -u $USERNAME -p $PASSWORD $REGISTRY'
-                            sh 'helm3 package $CHART_PATH --version=$CHART --app-version=$DOCKER_IMAGE_TAG' 
-                            sh 'helm3 cm-push $APP_NAME-*.tgz https://$REGISTRY/chartrepo/$REPOSITORY --username=$USERNAME --password=$PASSWORD'
+                        /*
+                        package helm chart
+                        */
+                        sh 'helm3 registry login -u $USERNAME -p $PASSWORD $REGISTRY'
+                        sh 'helm3 package $CHART_PATH --version=$CHART --app-version=$DOCKER_IMAGE_TAG' 
+                        sh 'helm3 cm-push $APP_NAME-*.tgz https://$REGISTRY/chartrepo/$REPOSITORY --username=$USERNAME --password=$PASSWORD'
 
-                            /*
-                            build docker image
-                            */
-                            sh 'docker login -u $USERNAME -p $PASSWORD https://$REGISTRY'
-                            sh 'docker build -f $DOCKERFILES_PATH -t $DOCKER .'
-                            sh 'docker push $DOCKER'
-                        }
+                        /*
+                        build docker image
+                        */
+                        sh 'docker login -u $USERNAME -p $PASSWORD https://$REGISTRY'
+                        sh 'docker build -f $DOCKERFILES_PATH -t $DOCKER .'
+                        sh 'docker push $DOCKER'
                     }
                 }
             }
@@ -145,7 +147,7 @@ pipeline {
                 container ('python') {
                     withCredentials([kubeconfigFile(credentialsId: env.KUBECONFIG_CREDENTIAL_ID,variable: 'KUBECONFIG')]) {
                         script {                        
-                            if (env.TKEEL_PLUGIN_ENABLE_UPGRADE == 'yes' || params.MANUAL_DEPLOY == "yes"){
+                            if (env.TKEEL_PLUGIN_ENABLE_UPGRADE == 'yes'){
                                 sh 'tkeel admin login -p changeme'
                                 sh 'mv devops/config/$TKEEL_PLUGIN_CONFIG ~/.tkeel/config.yaml'
                                 sh 'tkeel plugin upgrade $REPOSITORY/$APP_NAME@$CHART $APP_NAME'
