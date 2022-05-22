@@ -117,31 +117,26 @@ pipeline {
             }
             steps {
                 container ('python') {
-
                     script{
-                        if(env.TKEEL_PLUGIN_ENABLE_UPGRADE == 'do_not_build_and_upgrade'){
-                            sh 'echo do nothing'                            
-                        }else{
-                            /*
-                            edit chart
-                            */
-                            env.new_repository = "${env.REGISTRY}/${env.REPOSITORY}/${env.APP_NAME}"
-                            sh 'python3 devops/scripts/kotb.py write charts/values.yaml charts/values.yaml $new_repository'
+                        /*
+                        edit chart
+                        */
+                        env.new_repository = "${env.REGISTRY}/${env.REPOSITORY}/${env.APP_NAME}"
+                        sh 'python3 devops/scripts/kotb.py write charts/values.yaml charts/values.yaml $new_repository'
 
-                            /*
-                            package helm chart
-                            */
-                            sh 'helm3 registry login -u $USERNAME -p $PASSWORD $REGISTRY'
-                            sh 'helm3 package $CHART_PATH --version=$CHART --app-version=$DOCKER_IMAGE_TAG' 
-                            sh 'helm3 cm-push $APP_NAME-*.tgz https://$REGISTRY/chartrepo/$REPOSITORY --username=$USERNAME --password=$PASSWORD'
+                        /*
+                        package helm chart
+                        */
+                        sh 'helm3 registry login -u $USERNAME -p $PASSWORD $REGISTRY'
+                        sh 'helm3 package $CHART_PATH --version=$CHART --app-version=$DOCKER_IMAGE_TAG' 
+                        sh 'helm3 cm-push $APP_NAME-*.tgz https://$REGISTRY/chartrepo/$REPOSITORY --username=$USERNAME --password=$PASSWORD'
 
-                            /*
-                            build docker image
-                            */
-                            sh 'docker login -u $USERNAME -p $PASSWORD https://$REGISTRY'
-                            sh 'docker build -f $DOCKERFILES_PATH -t $DOCKER .'
-                            sh 'docker push $DOCKER'
-                        }
+                        /*
+                        build docker image
+                        */
+                        sh 'docker login -u $USERNAME -p $PASSWORD https://$REGISTRY'
+                        sh 'docker build -f $DOCKERFILES_PATH -t $DOCKER .'
+                        sh 'docker push $DOCKER'
                     }
                 }
             }
