@@ -139,7 +139,7 @@ func NewHookService(client dapr.Client) *HookService {
     connectedTotal := prometheus.NewGaugeVec(
         prometheus.GaugeOpts{
             Name:      "iothub_connected_total",
-            Help:      "Number of goroutines that currently exist.",
+            Help:      "Number of connected iothub.",
         },
         []string{"tenant"},
     )
