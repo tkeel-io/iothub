@@ -9,7 +9,7 @@ spec:
   endpoints:
     - interval: 1m
       path: /metrics
-      port: http
+      port: 8080
       scheme: http
       scrapeTimeout: 10s
   selector:
