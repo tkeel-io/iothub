@@ -3,7 +3,7 @@ kind: ServiceMonitor
 metadata:
   labels:
     app.kubernetes.io/vendor: kubesphere
-  name: tkeel-metrics
+  name: tkeel-iothub-metrics
   namespace: keel-system
 spec:
   endpoints:

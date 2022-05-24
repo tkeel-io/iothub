@@ -30,6 +30,8 @@ func RegisterMetricsHTTPServer(container *go_restful.Container, metricHandler Me
 		container.Add(ws)
 	}
 
+    container.EnableContentEncoding(false)
+
 	ws.Route(ws.GET("/metrics").
 		To(metricHandler.Metrics).
 		Produces(go_restful.MIME_JSON))
