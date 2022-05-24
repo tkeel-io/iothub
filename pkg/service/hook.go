@@ -138,7 +138,6 @@ func NewHookService(client dapr.Client) *HookService {
     //
     connectedTotal := prometheus.NewGaugeVec(
         prometheus.GaugeOpts{
-            Subsystem: "runtime",
             Name:      "iothub_connected_total",
             Help:      "Number of goroutines that currently exist.",
         },
