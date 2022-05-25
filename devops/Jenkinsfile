@@ -122,7 +122,7 @@ pipeline {
                         edit chart
                         */
                         env.new_repository = "${env.REGISTRY}/${env.REPOSITORY}/${env.APP_NAME}"
-                        sh 'python3 devops/scripts/kotb.py write charts/values.yaml charts/values.yaml $new_repository'
+                        sh 'python3 devops/scripts/kotb.py write $CHART_PATH/values.yaml $CHART_PATH/values.yaml $new_repository'
 
                         /*
                         package helm chart
