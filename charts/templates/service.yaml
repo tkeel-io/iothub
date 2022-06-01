@@ -15,6 +15,6 @@ spec:
     -port: 8080
       targetport: http
       protocol: TCP
-      name: name
+      name: http
   selector:
     app: {{ include "iothub.name" . }}
