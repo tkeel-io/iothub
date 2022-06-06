@@ -68,6 +68,11 @@ func main() {
 		}
 		Iothub_v1.RegisterTopicHTTPServer(httpSrv.Container, TopicSrv)
 		Iothub_v1.RegisterTopicServer(grpcSrv.GetServe(), TopicSrv)
+
+		//
+        // metrics service.
+        metricsSrv := service.NewMetricsService()
+        Iothub_v1.RegisterMetricsHTTPServer(httpSrv.Container, metricsSrv)
 	}
 
 	if err := app.Run(context.TODO()); err != nil {

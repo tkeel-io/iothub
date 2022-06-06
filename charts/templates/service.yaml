@@ -4,6 +4,7 @@ metadata:
   name: {{ include "iothub.fullname" . }}
   labels:
     {{- include "iothub.labels" . | nindent 4 }}
+    - tkeel.io/prometheus: true
 spec:
   type: {{ .Values.service.type }}
   ports:
@@ -11,5 +12,9 @@ spec:
       targetPort: rpc
       protocol: TCP
       name: rpc
+    -port: 8080
+      targetport: http
+      protocol: TCP
+      name: http
   selector:
     app: {{ include "iothub.name" . }}
