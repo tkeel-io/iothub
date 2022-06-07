@@ -131,7 +131,7 @@ func NewHookService(client dapr.Client) *HookService {
             Name: "iothub_msg_total",
             Help: "How many msg requests processed, partitioned by direction and tenant.",
         },
-        []string{"tenant", "direction"},
+        []string{"tenant_id", "direction"},
     )
     //
     prometheus.MustRegister(msgReq)
@@ -141,7 +141,7 @@ func NewHookService(client dapr.Client) *HookService {
             Name:      "iothub_connected_total",
             Help:      "Number of connected iothub.",
         },
-        []string{"tenant"},
+        []string{"tenant_id"},
     )
     prometheus.MustRegister(connectedTotal)
     // create metrics
@@ -416,6 +416,7 @@ func (s *HookService) auth(password, username string) bool {
         log.Errorf("invalid username %s", username)
         return false
     }
+    // TODO: 目前 owner 为用户 Id，是否带上租户 Id
     //save owner
     if err := s.SaveState(username+devEntitySuffixKey, []byte(tokenResp.Data.Owner)); err != nil {
         return false
