@@ -32,7 +32,7 @@ const (
     connectInfoSuffixKey         = `_ci`
     devEntitySuffixKey           = `_de`
     subEntitySuffixKey           = `_sub`
-    // 用户于租户的映射
+    // 用户与租户的映射
     tenantSuffixKey = `_tenant`
 
     //different properties of device entity
