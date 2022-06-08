@@ -32,6 +32,8 @@ const (
     connectInfoSuffixKey         = `_ci`
     devEntitySuffixKey           = `_de`
     subEntitySuffixKey           = `_sub`
+    // 用户于租户的映射
+    tenantSuffixKey = `_tenant`
 
     //different properties of device entity
     rawDataProperty     = `rawData`
@@ -96,7 +98,7 @@ type HookService struct {
 }
 
 type Collector struct {
-    msgTotal *prometheus.CounterVec
+    msgTotal       *prometheus.CounterVec
     connectedTotal *prometheus.GaugeVec
 }
 
@@ -131,22 +133,22 @@ func NewHookService(client dapr.Client) *HookService {
             Name: "iothub_msg_total",
             Help: "How many msg requests processed, partitioned by direction and tenant.",
         },
-        []string{"tenant", "direction"},
+        []string{"tenant_id", "direction"},
     )
     //
     prometheus.MustRegister(msgReq)
     //
     connectedTotal := prometheus.NewGaugeVec(
         prometheus.GaugeOpts{
-            Name:      "iothub_connected_total",
-            Help:      "Number of connected iothub.",
+            Name: "iothub_connected_total",
+            Help: "Number of connected iothub.",
         },
-        []string{"tenant"},
+        []string{"tenant_id"},
     )
     prometheus.MustRegister(connectedTotal)
     // create metrics
     mc := &Collector{
-        msgTotal: msgReq,
+        msgTotal:       msgReq,
         connectedTotal: connectedTotal,
     }
     //
@@ -239,8 +241,13 @@ func (s *HookService) OnClientConnected(ctx context.Context, in *pb.ClientConnec
         return nil, err
     }
     sw := string(owner)
+    tenant, err := s.GetState(username + tenantSuffixKey)
+    if err != nil {
+        return nil, err
+    }
+    tenantId := string(tenant)
     // metrics
-    s.collector.connectedTotal.WithLabelValues(sw).Add(1)
+    s.collector.connectedTotal.WithLabelValues(tenantId).Add(1)
     //
     data := map[string]interface{}{
         "id":     username,
@@ -296,9 +303,19 @@ func (s *HookService) OnClientDisconnected(ctx context.Context, in *pb.ClientDis
     }
     // get owner
     owner, err := s.GetState(username + devEntitySuffixKey)
+    if err != nil {
+        return nil, err
+    }
+    //
+    tenant, err := s.GetState(username + tenantSuffixKey)
+    if err != nil {
+        return nil, err
+    }
+    //
+    tenantId := string(tenant)
     // add metrics
     sw := string(owner)
-    s.collector.connectedTotal.WithLabelValues(sw).Add(-1)
+    s.collector.connectedTotal.WithLabelValues(tenantId).Add(-1)
     if err != nil {
         return nil, err
     }
@@ -363,6 +380,7 @@ type TokenValidResponseData struct {
     EntityType string `json:"entity_type"`
     ExpiredAt  string `json:"expired_at"`
     Owner      string `json:"owner"`
+    TenantID   string `json:"tenant_id"`
     CreatedAt  string `json:"created_at"`
 }
 
@@ -416,8 +434,13 @@ func (s *HookService) auth(password, username string) bool {
         log.Errorf("invalid username %s", username)
         return false
     }
+    // TODO: 目前 owner 为用户 Id，是否带上租户 Id
     //save owner
     if err := s.SaveState(username+devEntitySuffixKey, []byte(tokenResp.Data.Owner)); err != nil {
+        return false
+    }
+    // save owner and tenant map
+    if err := s.SaveState(username+tenantSuffixKey, []byte(tokenResp.Data.TenantID)); err != nil {
         return false
     }
     return true
@@ -609,23 +632,23 @@ func (s *HookService) OnMessagePublish(ctx context.Context, in *pb.MessagePublis
     res.Value = &pb.ValuedResponse_BoolResult{BoolResult: false}
     username := getUserNameFromTopic(in.Message.Topic)
     //get owner
-    owner, err := s.GetState(username + devEntitySuffixKey)
+    owner, err := s.GetState(username + tenantSuffixKey)
     log.Infof("find username: %s owner: %s", username, owner)
     if err != nil {
         return nil, err
     }
-    sw := string(owner)
+    tenantId := string(owner)
     //do nothing when receive tkeel attribute/telemetry/command event.
     // 下行数据直接返回
     // add metrics
     if in.Message.From == defaultDownStreamClientId {
-        s.collector.msgTotal.WithLabelValues(sw, MarkDownStream).Add(1)
+        s.collector.msgTotal.WithLabelValues(tenantId, MarkDownStream).Add(1)
         log.Debugf("downstream data: %v", in.GetMessage())
         res.Value = &pb.ValuedResponse_BoolResult{BoolResult: true}
         return res, nil
     }
     //
-    s.collector.msgTotal.WithLabelValues(sw, MarkUpStream).Add(1)
+    s.collector.msgTotal.WithLabelValues(tenantId, MarkUpStream).Add(1)
     //
     data := make(map[string]interface{})
     data["id"] = username
