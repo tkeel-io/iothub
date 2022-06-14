@@ -136,10 +136,7 @@ func (s *TopicService) TopicEventHandler(ctx context.Context, req *pb.TopicEvent
         if !ok || v == nil {
             return &pb.TopicEventResponse{Status: SubscriptionResponseStatusDrop}, err
         }
-        // 原始数据的 value 需要特殊处理
-        if topic == "" {
 
-        }
         userNameTopic := buildTopic(devId, topic)
 
         if err = Publish(devId, userNameTopic, defaultDownStreamClientId, 0, false, v); err != nil {
