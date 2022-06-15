@@ -26,6 +26,7 @@ var (
 	HTTPAddr string
 	// GRPCAddr string.
 	GRPCAddr string
+	//
 )
 
 func init() {
