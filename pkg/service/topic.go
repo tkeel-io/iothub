@@ -72,7 +72,8 @@ func buildTopic(devId, topic string, ) string {
 const (
     _cmdPropPath  = `properties.commands`
     _attrPropPath = `properties.attributes`
-    _rawPropPath  = `properties.rawDown`
+    // 原始数据只取 value 后面的
+    _rawPropPath  = `properties.rawDown.value`
 )
 
 /**
@@ -135,7 +136,9 @@ func (s *TopicService) TopicEventHandler(ctx context.Context, req *pb.TopicEvent
         if !ok || v == nil {
             return &pb.TopicEventResponse{Status: SubscriptionResponseStatusDrop}, err
         }
+
         userNameTopic := buildTopic(devId, topic)
+
         if err = Publish(devId, userNameTopic, defaultDownStreamClientId, 0, false, v); err != nil {
             log.Errorf("TopicEventHandler: topic=%s err=%v", userNameTopic, err)
             return &pb.TopicEventResponse{Status: SubscriptionResponseStatusSuccess}, err
