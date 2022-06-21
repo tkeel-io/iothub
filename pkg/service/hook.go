@@ -274,7 +274,7 @@ func (s *HookService) OnClientConnected(ctx context.Context, in *pb.ClientConnec
         s.deviceStatus.Store(username, DeviceStatusOnline)
     }
     // 记录设备状态 Online
-    s.collector.connectedTotal.WithLabelValues(tenantId, username).Set(1)
+    s.collector.deviceStatus.WithLabelValues(tenantId, username).Set(1)
 
     data := map[string]interface{}{
         "id":     username,
@@ -344,7 +344,7 @@ func (s *HookService) OnClientDisconnected(ctx context.Context, in *pb.ClientDis
         s.deviceStatus.Store(username, DeviceStatusOffline)
     }
     // add device status -- offline
-    s.collector.connectedTotal.WithLabelValues(tenantId, username).Set(0)
+    s.collector.deviceStatus.WithLabelValues(tenantId, username).Set(0)
     owner, err := s.GetState(username + devEntitySuffixKey)
     if err != nil {
         return nil, err
