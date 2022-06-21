@@ -3,18 +3,21 @@ package service
 import (
     "context"
     "encoding/json"
+    "strings"
+    "time"
+
+    "github.com/Shopify/sarama"
     pb "github.com/tkeel-io/iothub/api/iothub/v1"
     "github.com/tkeel-io/kit/log"
-    "strings"
 
     "github.com/tidwall/gjson"
 )
 
 var _validTopics = map[string]string{
-    DeviceDebugTopic:       "-",
-    AttributesTopic:        _attrPropPath,
-    CommandTopic:           _cmdPropPath,
-    RawDataTopic:           _rawPropPath,
+    DeviceDebugTopic: "-",
+    AttributesTopic:  _attrPropPath,
+    CommandTopic:     _cmdPropPath,
+    RawDataTopic:     _rawPropPath,
 }
 
 func validSubTopic(topic string) bool {
@@ -36,6 +39,10 @@ type TopicService struct {
     ctx     context.Context
     cancel  context.CancelFunc
     hookSvc *HookService
+
+    producer sarama.AsyncProducer
+    // the topic pub to core
+    corePubTopic string
 }
 
 const (
@@ -48,12 +55,38 @@ const (
 )
 
 func NewTopicService(ctx context.Context, hookSvc *HookService) (*TopicService, error) {
-    ctx, cancel := context.WithCancel(ctx)
+    config := sarama.NewConfig()
+    config.Producer.Return.Successes = true
+    config.Producer.Return.Errors = true
+    ad := envWithDefault(_envKafkaService, `kafka.keel-system.svc.cluster.local:9092`)
+    ads := strings.Split(ad, ";")
+    p, err := sarama.NewAsyncProducer(ads, config)
+    // TODO: error
+    if err != nil {
+        panic("error")
+    }
+    go func(p sarama.AsyncProducer) {
+        errs := p.Errors()
+        success := p.Successes()
+        for {
+            select {
+            case rc := <-errs:
+                if rc != nil {
+                    // TODO:
+                }
+                return
+            case _ = <-success:
+            }
+        }
+    }(p)
 
+    ctx, cancel := context.WithCancel(ctx)
     return &TopicService{
-        ctx:     ctx,
-        cancel:  cancel,
-        hookSvc: hookSvc,
+        ctx:          ctx,
+        cancel:       cancel,
+        hookSvc:      hookSvc,
+        producer:     p,
+        corePubTopic: envWithDefault(_envCorePubTopic, "core-pub"),
     }, nil
 }
 
@@ -64,7 +97,7 @@ func getValue(strReqJson string, subTypePath string) (bool, interface{}) {
 }
 
 //
-func buildTopic(devId, topic string, ) string {
+func buildTopic(devId, topic string) string {
     return strings.Join([]string{devId, topic}, "/")
 }
 
@@ -73,7 +106,7 @@ const (
     _cmdPropPath  = `properties.commands`
     _attrPropPath = `properties.attributes`
     // 原始数据只取 value 后面的
-    _rawPropPath  = `properties.rawDown.value`
+    _rawPropPath = `properties.rawDown.value`
 )
 
 /**
@@ -131,19 +164,55 @@ func (s *TopicService) TopicEventHandler(ctx context.Context, req *pb.TopicEvent
     }
 
     // 根据从 core 来的消息处理不同的 topic
+    var dataValue interface{}
+    userNameTopic := ""
     if propPath, ok := getKeyFromTopic(topic); ok && propPath != "" {
-        ok, v := getValue(strReqJson, propPath)
-        if !ok || v == nil {
+        ok, dataValue = getValue(strReqJson, propPath)
+        if !ok || dataValue == nil {
             return &pb.TopicEventResponse{Status: SubscriptionResponseStatusDrop}, err
         }
 
-        userNameTopic := buildTopic(devId, topic)
+        userNameTopic = buildTopic(devId, topic)
 
-        if err = Publish(devId, userNameTopic, defaultDownStreamClientId, 0, false, v); err != nil {
+        if err = Publish(devId, userNameTopic, defaultDownStreamClientId, 0, false, dataValue); err != nil {
             log.Errorf("TopicEventHandler: topic=%s err=%v", userNameTopic, err)
             return &pb.TopicEventResponse{Status: SubscriptionResponseStatusSuccess}, err
         }
     }
+
+    payloadBytes, err := json.Marshal(dataValue)
+    if err != nil {
+        return &pb.TopicEventResponse{Status: SubscriptionResponseStatusDrop}, err
+    }
+    owner := gjson.Get(strReqJson, "owner").String()
+    data := make(map[string]interface{})
+    data["id"] = devId
+    data["owner"] = owner
+    data["type"] = "device"
+    data["source"] = "iothub"
+    ts := time.Now().UnixMilli()
+    md := map[string]interface{}{
+        rawDataProperty: map[string]interface{}{
+            "id":     devId,
+            "ts":     ts,
+            "values": payloadBytes,
+            "path":   userNameTopic,
+            "type":   rawDataProperty,
+            "mark":   MarkDownStream,
+        },
+    }
+    data["data"] = md
+    dd, err := toCloudEventData(data)
+    if err != nil {
+        log.Errorf("toCloudEventData %s", err.Error())
+        return &pb.TopicEventResponse{Status: SubscriptionResponseStatusDrop}, err
+    }
+    s.producer.Input() <- &sarama.ProducerMessage{
+        Topic: s.corePubTopic,
+        Value: sarama.ByteEncoder(dd),
+        Key:   sarama.StringEncoder(devId),
+    }
+    log.Debug("OnMessagePublish", data)
 
     return &pb.TopicEventResponse{Status: SubscriptionResponseStatusDrop}, err
 }
