@@ -156,6 +156,7 @@ func NewHookService(client dapr.Client) *HookService {
         },
         []string{"tenant_id"},
     )
+    prometheus.MustRegister(connectedTotal)
     // 在线设置为1，离线设置0
     deviceStatus := prometheus.NewGaugeVec(
         prometheus.GaugeOpts{
@@ -164,7 +165,7 @@ func NewHookService(client dapr.Client) *HookService {
         },
         []string{"tenant_id", "device_id"},
     )
-    prometheus.MustRegister(connectedTotal)
+    prometheus.MustRegister(deviceStatus)
     // create metrics
     mc := &Collector{
         msgTotal:       msgReq,
