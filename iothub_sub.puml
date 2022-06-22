@@ -1,0 +1,14 @@
+@startuml
+'https://plantuml.com/sequence-diagram
+
+
+
+
+Device -> EMQ: 1 订阅 TOPIC
+EMQ -> IoTHub: 1.1 调用Hook
+IoTHub -> Core: 1.2 创建订阅实体
+
+Core --> IoTHub: 2. 实体属性发生变更
+IoTHub --> EMQ: 2.1 推送变更数据到 EMQ
+EMQ --> Device: 2.2 通过订阅的 TOPIC 获得相应数据
+@enduml

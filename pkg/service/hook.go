@@ -12,6 +12,7 @@ import (
     "reflect"
     "strconv"
     "strings"
+    "sync"
     "time"
 
     "github.com/Shopify/sarama"
@@ -69,6 +70,13 @@ const (
     _envKafkaService = `KAFKA_SERVICE`
 )
 
+type DeviceStatus int
+
+const (
+    DeviceStatusOffline DeviceStatus = iota + 1
+    DeviceStatusOnline
+)
+
 func propertyTypeFromTopic(topic string) string {
     switch topic {
     case AttributesTopic:
@@ -95,11 +103,14 @@ type HookService struct {
     corePubTopic string
     // metrics
     collector *Collector
+    // 记录设备的状态 1 在线 0 离线
+    deviceStatus sync.Map
 }
 
 type Collector struct {
     msgTotal       *prometheus.CounterVec
     connectedTotal *prometheus.GaugeVec
+    deviceStatus   *prometheus.GaugeVec
 }
 
 func NewHookService(client dapr.Client) *HookService {
@@ -146,10 +157,20 @@ func NewHookService(client dapr.Client) *HookService {
         []string{"tenant_id"},
     )
     prometheus.MustRegister(connectedTotal)
+    // 在线设置为1，离线设置0
+    deviceStatus := prometheus.NewGaugeVec(
+        prometheus.GaugeOpts{
+            Name: "iothub_device_status",
+            Help: "device status 1-online 0-offline.",
+        },
+        []string{"tenant_id", "device_id"},
+    )
+    prometheus.MustRegister(deviceStatus)
     // create metrics
     mc := &Collector{
         msgTotal:       msgReq,
         connectedTotal: connectedTotal,
+        deviceStatus:   deviceStatus,
     }
     //
     return &HookService{
@@ -246,9 +267,16 @@ func (s *HookService) OnClientConnected(ctx context.Context, in *pb.ClientConnec
         return nil, err
     }
     tenantId := string(tenant)
-    // metrics
-    s.collector.connectedTotal.WithLabelValues(tenantId).Add(1)
-    //
+    st, ok := s.deviceStatus.Load(username)
+    // 有并发问题
+    if !ok || (ok && st == DeviceStatusOffline) {
+        // metrics
+        s.collector.connectedTotal.WithLabelValues(tenantId).Add(1)
+        s.deviceStatus.Store(username, DeviceStatusOnline)
+    }
+    // 记录设备状态 Online
+    s.collector.deviceStatus.WithLabelValues(tenantId, username).Set(1)
+
     data := map[string]interface{}{
         "id":     username,
         "owner":  sw,
@@ -302,23 +330,31 @@ func (s *HookService) OnClientDisconnected(ctx context.Context, in *pb.ClientDis
         },
     }
     // get owner
-    owner, err := s.GetState(username + devEntitySuffixKey)
-    if err != nil {
-        return nil, err
-    }
-    //
+    dv, ok := s.deviceStatus.Load(username)
     tenant, err := s.GetState(username + tenantSuffixKey)
     if err != nil {
         return nil, err
     }
     //
     tenantId := string(tenant)
-    // add metrics
-    sw := string(owner)
-    s.collector.connectedTotal.WithLabelValues(tenantId).Add(-1)
+    // online
+    if ok && dv == DeviceStatusOnline { //
+
+        s.collector.connectedTotal.WithLabelValues(tenantId).Add(-1)
+        // 设置成 offline
+        s.deviceStatus.Store(username, DeviceStatusOffline)
+    }
+    // add device status -- offline
+    s.collector.deviceStatus.WithLabelValues(tenantId, username).Set(0)
+    owner, err := s.GetState(username + devEntitySuffixKey)
     if err != nil {
         return nil, err
     }
+    //
+
+    // add metrics
+    sw := string(owner)
+
     data := map[string]interface{}{
         "id":     username,
         "owner":  sw,
