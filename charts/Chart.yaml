@@ -1,6 +1,6 @@
 apiVersion: v2
 name: iothub
-description: A Helm chart for Kubernetes
+description: 设备接入插件
 
 # A chart can be either an 'application' or a 'library' chart.
 #
